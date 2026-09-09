@@ -1,0 +1,6 @@
+node_modules/
+serviceAccountKey.json
+restaurantes_con_resenas.json
+restaurantes_tarragona_con_resenas.json
+restaurantes_espana_con_resenas.json
+.env

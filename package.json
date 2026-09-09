@@ -1,0 +1,21 @@
+{
+  "name": "restaurante_mira",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "llenar": "node index.js",
+    "borrar": "node borrar.js",
+    "ver": "node ver-uno.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Yelp -> Faker (50 reseñas) -> Firebase",
+  "engines": { "node": ">=18.0.0" },
+  "dependencies": {
+    "@faker-js/faker": "^10.6.0",
+    "firebase-admin": "^13.10.0"
+  }
+}
