@@ -41,6 +41,13 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
 const GEMINI_MODEL = 'gemini-2.0-flash';
 const REVIEW_CONCURRENCIA = 3; // llamadas IA en paralelo (el tier gratis admite ~15/min)
 
+// --- FOTOS: Pexels rellena las que Yelp no trae (el scrapeo directo a
+// TheFork/Tripadvisor/Maps está bloqueado por anti-bots: devuelven 403) ---
+// Clave gratis (200 req/hora, sin tarjeta): https://www.pexels.com/api/
+//   PowerShell: $env:PEXELS_API_KEY="tu_clave"; node index.js
+// Sin clave se conservan las fotos de Yelp tal cual (vacías donde no haya).
+const PEXELS_API_KEY = process.env.PEXELS_API_KEY || '';
+
 // --- FIREBASE (para cambiar de BBDD solo sustituye 'serviceAccountKey.json') ---
 // 1. Firebase Console > Configuración del proyecto > Cuentas de servicio
 // 2. Generar clave privada y guardarla como 'serviceAccountKey.json' en esta misma carpeta
@@ -457,6 +464,83 @@ async function subirAFirebase(restaurantes) {
 }
 
 // =====================================================
+// 4c. FOTOS PEXELS: 1 foto de cocina por restaurante sin imagen
+// =====================================================
+// Se mira NOMBRE + categorías y se quitan tildes (Marisquería→marisqueria).
+// Orden de específico a genérico: 'pizzeria'/'crep' antes que 'italian', etc.
+function textoFoto(restaurante) {
+  return ((restaurante.categorias || []).join(' ') + ' ' + (restaurante.nombre || ''))
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+const FOTO_PEXELS_REGLAS = [
+  [['sushi', 'japon', 'japanese'], 'sushi platter'],
+  [['pizzeria', 'pizza'], 'pizza'],
+  [['crep'], 'crepes'],
+  [['italian', 'pasta', 'tagliatella', 'trattoria'], 'italian food'],
+  [['tapas', 'spanish', 'espa', 'mediterr', 'catalan', 'paella', 'arros'], 'spanish paella'],
+  [['frankfurt', 'german', 'deutsch', 'wurst'], 'german sausages'],
+  [['argentine', 'argentin', 'milonga'], 'argentine steak'],
+  [['peruvian', 'peru', 'ceviche'], 'peruvian food'],
+  [['mexican', 'taco'], 'mexican tacos'],
+  [['oriental', 'asiatico', 'asia', 'chinese', 'china', 'wok', 'canton'], 'asian food'],
+  [['thai', 'vietnam'], 'thai food'],
+  [['indian', 'india', 'curry'], 'indian curry'],
+  [['mcdonald', 'fast food', 'american', 'diner', 'bocatta', 'sandwich', 'viena'], 'gourmet burger'],
+  [['burger', 'hamburg'], 'gourmet burger'],
+  [['marisqueria', 'seafood', 'marisc', 'pescad'], 'seafood dish'],
+  [['asador', 'braseria', 'brass', 'brasa', 'steak', 'grill', 'parrilla', 'barbecue'], 'grilled meat'],
+  [['taberna', 'bodega', 'bodegueta', 'celler'], 'wine tapas bar'],
+  [['french', 'franc'], 'french cuisine'],
+  [['greek', 'grieg'], 'greek food'],
+  [['kebab', 'turk', 'leban', 'arab'], 'kebab'],
+  [['dessert', 'postre', 'helad', 'pastel', 'bakery', 'cake', 'ice cream', 'dolc', 'xocolat', 'chocolate'], 'dessert'],
+  [['breakfast', 'brunch', 'caf', 'xurreria', 'churro'], 'brunch'],
+  [['wine', 'vino'], 'wine bar'],
+];
+const FOTO_PEXELS_DEFAULT = 'mediterranean food'; // genérico pero siempre comida
+
+/** Query Pexels para un restaurante (nombre + categorías, sin tildes). */
+function consultaFotoPexels(restaurante) {
+  const texto = textoFoto(restaurante);
+  for (const [keys, q] of FOTO_PEXELS_REGLAS) {
+    if (keys.some((k) => texto.includes(k))) return q;
+  }
+  return FOTO_PEXELS_DEFAULT;
+}
+
+/**
+ * Rellena restaurante.imagen_url con una foto de Pexels según su cocina.
+ * Devuelve true si puso foto. Con forzar=true re-hace aunque ya tenga.
+ * Sin API key no hace nada. Foto estable (hash del id): mismo local, misma foto.
+ */
+async function rellenarImagenPexels(restaurante, forzar = false) {
+  if ((!forzar && restaurante.imagen_url) || !PEXELS_API_KEY) return false;
+  const url = `https://api.pexels.com/v1/search?query=${encodeURIComponent(
+    consultaFotoPexels(restaurante)
+  )}&orientation=landscape&per_page=10`;
+  const res = await fetch(url, { headers: { Authorization: PEXELS_API_KEY } });
+  if (res.status === 401) throw new Error('Pexels: API key inválida (401). Revísala en pexels.com/api');
+  if (res.status === 429) {
+    console.log('   ⏳ Cuota Pexels, esperando 65s y reintentando una vez...');
+    await sleep(65000);
+    return rellenarImagenPexels(restaurante);
+  }
+  if (!res.ok) throw new Error(`Pexels ${res.status}`);
+  const fotos = (await res.json()).photos || [];
+  if (!fotos.length) return false;
+  let h = 0;
+  for (const ch of (restaurante.yelp_id || restaurante.nombre || '?')) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  const elegida = fotos[h % fotos.length].src?.large || fotos[0].src?.large;
+  if (!elegida) return false;
+  restaurante.imagen_url = elegida;
+  restaurante.imagen_fuente = 'pexels'; // 'yelp' (original) o 'pexels' (relleno)
+  return true;
+}
+
+// =====================================================
 // 6. MAIN
 // =====================================================
 async function main() {
@@ -471,6 +555,25 @@ async function main() {
     await generarTodasLasResenas(restaurantes);
     console.log('   Ej. reseña:', JSON.stringify(restaurantes[0]?.resenas[0]) + '\n');
 
+    // Fotos: Pexels rellena las que Yelp no trae (solo con API key)
+    if (PEXELS_API_KEY) {
+      const sinFoto = restaurantes.filter((r) => !r.imagen_url);
+      console.log(`📷 Fotos Pexels: ${sinFoto.length} sin imagen de Yelp...`);
+      let conFoto = 0;
+      for (const r of sinFoto) {
+        try {
+          if (await rellenarImagenPexels(r)) conFoto++;
+        } catch (e) {
+          console.log(`   ⚠️  ${r.nombre}: ${e.message}`);
+          break; // si falla la key o la cuota, no seguimos golpeando la API
+        }
+        await sleep(400);
+      }
+      console.log(`   ✅ ${conFoto}/${sinFoto.length} con foto Pexels.`);
+    } else {
+      console.log('📷 Sin PEXELS_API_KEY: se conservan las fotos de Yelp (vacías donde no haya).');
+    }
+
     await subirAFirebase(restaurantes);
     console.log('\n🎉 Fin correcto.');
   } catch (err) {
@@ -480,7 +583,7 @@ async function main() {
 }
 
 if (require.main === module) main();
-module.exports = { fetchRestaurantesDeYelp, mapearRestaurante, generarResenasParaRestaurante, generarTodasLasResenas, generarResenasConIA, subirAFirebase, CIUDADES };
+module.exports = { fetchRestaurantesDeYelp, mapearRestaurante, generarResenasParaRestaurante, generarTodasLasResenas, generarResenasConIA, rellenarImagenPexels, consultaFotoPexels, subirAFirebase, CIUDADES };
 
 /*
  * COMANDOS (Windows, siempre npm.cmd):
@@ -491,4 +594,7 @@ module.exports = { fetchRestaurantesDeYelp, mapearRestaurante, generarResenasPar
  * RESEÑAS CON IA (Gemini, clave gratis en https://aistudio.google.com/apikey):
  * $env:REVIEW_MOTOR="gemini"; $env:GEMINI_API_KEY="tu_clave"; node index.js
  * Prueba barata con 1 ciudad: $env:SOLO_CIUDAD="lleida"; $env:REVIEW_MOTOR="gemini"; $env:GEMINI_API_KEY="tu_clave"; node index.js
+ *
+ * FOTOS Pexels (clave gratis en https://www.pexels.com/api/):
+ * $env:PEXELS_API_KEY="tu_clave"; node rellenar-imagenes.js
  */

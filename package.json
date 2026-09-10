@@ -9,7 +9,8 @@
     "borrar": "node borrar.js",
     "ver": "node ver-restaurantes.js",
     "ver:restaurantes": "node ver-restaurantes.js",
-    "ver:usuarios": "node ver-usuarios.js"
+    "ver:usuarios": "node ver-usuarios.js",
+    "fotos": "node rellenar-imagenes.js"
   },
   "keywords": [],
   "author": "",
