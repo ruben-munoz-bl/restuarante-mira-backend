@@ -7,7 +7,9 @@
     "start": "node index.js",
     "llenar": "node index.js",
     "borrar": "node borrar.js",
-    "ver": "node ver-uno.js"
+    "ver": "node ver-restaurantes.js",
+    "ver:restaurantes": "node ver-restaurantes.js",
+    "ver:usuarios": "node ver-usuarios.js"
   },
   "keywords": [],
   "author": "",

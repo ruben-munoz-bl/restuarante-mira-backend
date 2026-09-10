@@ -1,15 +1,19 @@
 /**
- * ver-uno.js - Ver / filtrar restaurantes por terminal (colección única 'restaurants')
- * ----------------------------------------------------------------------------------
+ * ver-restaurantes.js - Ver / filtrar restaurantes por terminal (colección única 'restaurants')
+ * ------------------------------------------------------------------------------------------------
  * Uso:
- *   node ver-uno.js                      -> muestra el primero que encuentre
- *   node ver-uno.js --list               -> lista 20 (id + nombre + ciudad)
- *   node ver-uno.js --zona tarragona     -> lista 20 de esa zona (filtra por zona_busqueda/ciudad)
- *   node ver-uno.js --zonas              -> cuenta cuántos hay por zona
- *   node ver-uno.js <yelp_id>            -> busca por ID exacto
- *   node ver-uno.js <texto>              -> busca por nombre (ej: node ver-uno.js miracle)
- *   node ver-uno.js --random             -> muestra uno al azar
- *   node ver-uno.js --random --zona vigo -> uno al azar de esa zona
+ *   node ver-restaurantes.js                    -> muestra el primero que encuentre
+ *   node ver-restaurantes.js --list             -> lista 20 (id + nombre + ciudad)
+ *   node ver-restaurantes.js --zona tarragona   -> lista 20 de esa zona (zona_busqueda/ciudad)
+ *   node ver-restaurantes.js --zonas            -> cuenta cuántos hay por zona
+ *   node ver-restaurantes.js --nombre <texto>   -> lista hasta 20 cuyo nombre contenga el texto
+ *   node ver-restaurantes.js <yelp_id>          -> busca por ID exacto (1 sola lectura)
+ *   node ver-restaurantes.js <texto>            -> atajo: ID exacto y si no, 1º por nombre
+ *   node ver-restaurantes.js --random           -> muestra uno al azar
+ *   node ver-restaurantes.js --random --zona vigo -> uno al azar de esa zona
+ *
+ * Coste: --list/--random 20-50 lecturas; --zonas/--nombre hasta ~690 (full-scan).
+ * Lo más barato para 1 local es el ID exacto.
  */
 const path = require('path');
 const fs = require('fs');
@@ -17,6 +21,7 @@ const admin = require('firebase-admin');
 
 const FIREBASE_SERVICE_ACCOUNT_PATH = './serviceAccountKey.json';
 const FIRESTORE_COLLECTION = 'restaurants';
+const MAX_LISTA = 20;
 
 function pintar(r, id) {
   console.log('\n========================================');
@@ -33,13 +38,21 @@ function pintar(r, id) {
   console.log('========================================\n');
 }
 
+function pintarLinea(d) {
+  console.log(` - ${d.id} | ${d.data().nombre} (${d.data().ciudad}) [${d.data().zona_busqueda}]`);
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const arg = args[0];
   // flag --zona <texto>: filtra por zona_busqueda o ciudad (ej: --zona tarragona)
   const zi = args.indexOf('--zona');
   const zonaFiltro = zi !== -1 ? (args[zi + 1] || '').toLowerCase() : null;
-  if (zi !== -1 && !args[zi + 1]) return console.log('Uso: node ver-uno.js --zona tarragona');
+  if (zi !== -1 && !args[zi + 1]) return console.log('Uso: node ver-restaurantes.js --zona tarragona');
+  // flag --nombre <texto>: lista coincidencias por nombre (ej: --nombre botin)
+  const ni = args.indexOf('--nombre');
+  const nombreFiltro = ni !== -1 ? (args[ni + 1] || '').toLowerCase() : null;
+  if (ni !== -1 && !args[ni + 1]) return console.log('Uso: node ver-restaurantes.js --nombre botin');
 
   const credPath = path.resolve(__dirname, FIREBASE_SERVICE_ACCOUNT_PATH);
   if (!fs.existsSync(credPath)) throw new Error(`No existe ${FIREBASE_SERVICE_ACCOUNT_PATH}`);
@@ -53,7 +66,7 @@ async function main() {
     return ((r.zona_busqueda || '') + ' ' + (r.ciudad || '')).toLowerCase().includes(zonaFiltro);
   };
 
-  // --zonas: conteo por zona_busqueda (lee solo esos 2 campos)
+  // --zonas: conteo por zona_busqueda (full-scan, ~690 lecturas)
   if (arg === '--zonas') {
     const snap = await col.select('zona_busqueda').get();
     if (snap.empty) return console.log('⚠️ Colección vacía. Ejecuta: node index.js');
@@ -65,13 +78,26 @@ async function main() {
     return process.exit(0);
   }
 
+  // --nombre: lista coincidencias por nombre (+ zona opcional)
+  if (nombreFiltro) {
+    const snap = await col.limit(500).get();
+    const docs = snap.docs
+      .filter((d) => (d.data().nombre || '').toLowerCase().includes(nombreFiltro))
+      .filter(enZona)
+      .slice(0, MAX_LISTA);
+    if (!docs.length) return console.log(`❌ Nada con nombre "${args[ni + 1]}". Prueba: node ver-restaurantes.js --list`);
+    console.log(`📋 ${docs.length} con nombre "${args[ni + 1]}"${zonaFiltro ? ` en zona "${zonaFiltro}"` : ''}:`);
+    docs.forEach(pintarLinea);
+    return process.exit(0);
+  }
+
   // --list: solo ids para copiar/pegar (con filtro de zona opcional)
   if (arg === '--list' || (arg === '--zona')) {
     const snap = await col.limit(zonaFiltro ? 500 : 20).get();
-    const docs = snap.docs.filter(enZona).slice(0, 20);
-    if (!docs.length) return console.log(`⚠️ Nada en zona "${zonaFiltro || ''}". Prueba: node ver-uno.js --zonas`);
+    const docs = snap.docs.filter(enZona).slice(0, MAX_LISTA);
+    if (!docs.length) return console.log(`⚠️ Nada en zona "${zonaFiltro || ''}". Prueba: node ver-restaurantes.js --zonas`);
     console.log(`📋 ${docs.length}${zonaFiltro ? ` en zona "${zonaFiltro}"` : ' (primeros)' }: `);
-    docs.forEach((d) => console.log(` - ${d.id} | ${d.data().nombre} (${d.data().ciudad}) [${d.data().zona_busqueda}]`));
+    docs.forEach(pintarLinea);
     return process.exit(0);
   }
 
@@ -80,7 +106,7 @@ async function main() {
     if (arg === '--random' || zonaFiltro) {
       const snap = await col.limit(zonaFiltro ? 500 : 50).get();
       const docs = snap.docs.filter(enZona);
-      if (!docs.length) return console.log(`⚠️ Nada en zona "${zonaFiltro}". Prueba: node ver-uno.js --zonas`);
+      if (!docs.length) return console.log(`⚠️ Nada en zona "${zonaFiltro}". Prueba: node ver-restaurantes.js --zonas`);
       const pick = docs[Math.floor(Math.random() * docs.length)];
       pintar(pick.data(), pick.id);
     } else {
@@ -91,21 +117,21 @@ async function main() {
     return process.exit(0);
   }
 
-  // 1) intento por ID exacto (más rápido)
+  // 1) intento por ID exacto (1 sola lectura, lo más barato)
   const porId = await col.doc(arg).get();
   if (porId.exists) {
     pintar(porId.data(), porId.id);
     return process.exit(0);
   }
 
-  // 2) búsqueda por nombre (contiene, insensible a mayúsculas)
+  // 2) atajo por nombre: enseña el primero que contenga el texto
   const snap = await col.limit(200).get();
   const q = arg.toLowerCase();
   const hall = snap.docs.find((d) => (d.data().nombre || '').toLowerCase().includes(q));
   if (hall) {
     pintar(hall.data(), hall.id);
   } else {
-    console.log(`❌ Nada para "${arg}". Prueba: node ver-uno.js --list`);
+    console.log(`❌ Nada para "${arg}". Prueba: node ver-restaurantes.js --list`);
   }
   process.exit(0);
 }
