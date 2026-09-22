@@ -1,0 +1,142 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    function isEmpresa() {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.tipo == 'empresa';
+    }
+
+    match /restaurants/{id} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.ciudad is string
+        && request.resource.data.precio in ['€','€€','€€€'];
+      allow update: if isAdmin() || isEmpresa();
+      allow delete: if false;
+    }
+
+    match /usuarios/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isSignedIn() && request.auth.uid == uid;
+      allow update: if isOwner(uid) || isAdmin();
+    }
+
+    match /negocios/{id} {
+      allow read: if isOwner(resource.data.uid) || isAdmin();
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() > 0
+        && request.resource.data.estado == 'pendiente';
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /contactos/{id} {
+      allow read: if isOwner(resource.data.uid) || isAdmin();
+      allow create: if request.resource.data.mensaje is string
+        && request.resource.data.mensaje.size() > 0
+        && request.resource.data.mensaje.size() <= 2000;
+      allow update: if isAdmin();
+      allow delete: if false;
+    }
+
+    match /reservas/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.fecha is string
+        && request.resource.data.hora is string
+        && request.resource.data.comensales >= 1
+        && request.resource.data.comensales <= 10;
+      allow update: if isOwner(resource.data.uid) || isAdmin() || isEmpresa();
+      allow delete: if isOwner(resource.data.uid) || isAdmin();
+    }
+
+    match /aforo/{id} {
+      allow read: if true;
+      allow create, update: if isSignedIn()
+        && request.resource.data.ocupadas >= 0
+        && request.resource.data.limite >= 4
+        && request.resource.data.limite <= 12;
+      allow delete: if false;
+    }
+
+    match /resenas/{id} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && request.resource.data.usuarioId == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if false;
+    }
+
+    match /mensajes/{id} {
+      allow read: if isOwner(resource.data.uid);
+      allow create: if false;
+      allow update: if isOwner(resource.data.uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['leido']);
+      allow delete: if false;
+    }
+
+    match /admins/{uid} {
+      allow read: if isOwner(uid);
+      allow write: if false;
+    }
+
+    match /tickets/{id} {
+      allow read: if isOwner(resource.data.uid) || isAdmin() || isEmpresa();
+      allow create: if isSignedIn();
+      allow update: if isAdmin() || isEmpresa();
+      allow delete: if false;
+    }
+
+    match /finanzas_restaurante/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if false;
+    }
+
+    match /puntos_movimientos/{id} {
+      allow read: if isOwner(resource.data.uid) || isAdmin();
+      allow create: if isSignedIn();
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    match /invitaciones/{id} {
+      allow read: if true;
+      allow create: if isSignedIn()
+        && request.resource.data.creadorUid == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if false;
+    }
+
+    match /promociones/{id} {
+      allow read: if true;
+      allow create: if isSignedIn() && isEmpresa();
+      allow update: if isSignedIn() && (isEmpresa() || isAdmin());
+      allow delete: if false;
+    }
+
+    match /interacciones/{id} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn();
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    match /auditLog/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+  }
+}

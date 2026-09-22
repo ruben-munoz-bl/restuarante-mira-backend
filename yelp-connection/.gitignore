@@ -1,11 +1,6 @@
 node_modules/
-.env
 serviceAccountKey.json
 restaurantes_con_resenas.json
 restaurantes_tarragona_con_resenas.json
 restaurantes_espana_con_resenas.json
-
-# mira-api (TypeScript / Firebase)
-mira-api/lib/
-firebase-debug.log
-*.local
+.env
