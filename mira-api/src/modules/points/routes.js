@@ -64,7 +64,7 @@ router.get("/wheel/prizes", verifyFirebaseAuth, async (req, res) => {
   res.json({ prizes: pointsService.getWheelPrizes() });
 });
 
-router.post("/wheel", verifyFirebaseAuth, rateLimit(60000, 5), async (req, res, next) => {
+router.post("/wheel", verifyFirebaseAuth, async (req, res, next) => {
   try {
     // force solo admin en dev (clientes no pueden saltarse el lock de 7 días).
     const force = isDev && req.query.force === "1" && req.user.role === "admin";
