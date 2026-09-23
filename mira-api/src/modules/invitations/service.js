@@ -1,70 +1,66 @@
 const { db } = require("../../middlewares/verifyFirebaseAuth");
 const { logger } = require("../../middlewares/errorHandler");
-const { generarInviteCode, inicioMes, INVITACIONES_MAX_MES, INVITACIONES_RESERVAS_REQUERIDAS, PUNTOS_INVITACION } = require("../../config/constants");
-const { addMovement } = require("../points/service");
+const { generarInviteCode, INVITACIONES_MAX_MES, INVITACIONES_RESERVAS_REQUERIDAS, PUNTOS_INVITACION } = require("../../config/constants");
 
 async function crearInvitacion(uid, emailInvitado) {
   const userSnap = await db.collection("usuarios").doc(uid).get();
-  if (!userSnap.exists) throw new Error("Usuario no encontrado");
-  const userData = userSnap.data();
+  const userData = userSnap.exists ? userSnap.data() : {};
 
   if (emailInvitado.toLowerCase() === (userData.email || "").toLowerCase()) {
     throw new Error("No puedes invitarte a ti mismo");
   }
 
-  const mesActual = inicioMes();
-  const invitesSnap = await db.collection("invitaciones")
-    .where("invitadorUid", "==", uid)
-    .where("createdAt", ">=", new Date(mesActual))
-    .get();
-  if (invitesSnap.size >= INVITACIONES_MAX_MES) {
-    throw new Error(`Máximo ${INVITACIONES_MAX_MES} invitaciones por mes`);
+  const snap = await db.collection("invitaciones").where("creadorUid", "==", uid).get();
+  const now = new Date();
+  const thisMonth = snap.docs.filter((d) => {
+    const c = d.data().createdAt?.toDate ? d.data().createdAt.toDate() : new Date(d.data().createdAt);
+    return c.getMonth() === now.getMonth() && c.getFullYear() === now.getFullYear();
+  });
+  if (thisMonth.length >= INVITACIONES_MAX_MES) {
+    throw new Error(`Límite de ${INVITACIONES_MAX_MES} invitaciones por mes`);
   }
-
-  const existingInvite = await db.collection("invitaciones")
-    .where("invitadorUid", "==", uid)
-    .where("invitadoEmail", "==", emailInvitado.toLowerCase())
-    .get();
-  if (!existingInvite.empty) throw new Error("Ya enviaste invitación a este email");
 
   const codigo = generarInviteCode();
   const docRef = await db.collection("invitaciones").add({
-    invitadorUid: uid,
-    invitadoEmail: emailInvitado.toLowerCase(),
-    invitadoUid: null,
+    creadorUid: uid,
+    emailInvitado: emailInvitado,
     codigo,
     estado: "pendiente",
-    contadorReservasInvitado: 0,
+    reservasAmigo: 0,
+    aceptadaPor: null,
+    aceptadaEn: null,
     createdAt: new Date(),
-    aceptadaAt: null,
   });
 
   logger.info({ uid, emailInvitado, inviteId: docRef.id }, "Invitation created");
-  return { id: docRef.id, codigo, link: `https://mira.vercel.app/#/registro?invite=${codigo}` };
+  return { id: docRef.id, codigo, email: emailInvitado, estado: "pendiente" };
 }
 
-async function aceptarInvitacion(codigo, invitadoUid) {
+async function aceptarInvitacion(codigo, uid, userEmail) {
   const inviteSnap = await db.collection("invitaciones").where("codigo", "==", codigo).limit(1).get();
-  if (inviteSnap.empty) throw new Error("Invitación no encontrada");
+  if (inviteSnap.empty) throw new Error("Código no válido");
   const inviteDoc = inviteSnap.docs[0];
-  const invite = inviteDoc.data();
+  const inv = inviteDoc.data();
 
-  if (invite.estado === "aceptada") throw new Error("Invitación ya utilizada");
-  if (invite.invitadoUid && invite.invitadoUid !== invitadoUid) throw new Error("Invitación asignada a otro usuario");
+  if (inv.emailInvitado && userEmail && inv.emailInvitado.toLowerCase() !== String(userEmail).toLowerCase()) {
+    throw new Error("Este código no es para ti");
+  }
+  if (inv.estado !== "pendiente") throw new Error("Invitación ya usada");
 
   await db.collection("invitaciones").doc(inviteDoc.id).update({
-    invitadoUid,
     estado: "esperando_2_reservas",
+    aceptadaPor: uid,
+    aceptadaEn: new Date(),
     updatedAt: new Date(),
   });
 
-  logger.info({ inviteId: inviteDoc.id, invitadoUid }, "Invitation accepted (waiting for 2 reservations)");
-  return { aceptada: true };
+  logger.info({ inviteId: inviteDoc.id, uid }, "Invitation accepted (waiting for 2 reservations)");
+  return { ok: true, creadorUid: inv.creadorUid, estado: "esperando_2_reservas" };
 }
 
 async function onInvitadoReservaCompletada(invitadoUid) {
   const inviteSnap = await db.collection("invitaciones")
-    .where("invitadoUid", "==", invitadoUid)
+    .where("aceptadaPor", "==", invitadoUid)
     .where("estado", "==", "esperando_2_reservas")
     .limit(1)
     .get();
@@ -72,19 +68,18 @@ async function onInvitadoReservaCompletada(invitadoUid) {
   if (inviteSnap.empty) return;
 
   const inviteDoc = inviteSnap.docs[0];
-  const invite = inviteDoc.data();
+  const inv = inviteDoc.data();
+  const nuevasReservas = (inv.reservasAmigo || 0) + 1;
 
-  const nuevoContador = (invite.contadorReservasInvitado || 0) + 1;
-
-  if (nuevoContador >= INVITACIONES_RESERVAS_REQUERIDAS) {
+  if (nuevasReservas >= INVITACIONES_RESERVAS_REQUERIDAS) {
     await db.runTransaction(async (tx) => {
       tx.update(db.collection("invitaciones").doc(inviteDoc.id), {
-        contadorReservasInvitado: nuevoContador,
+        reservasAmigo: nuevasReservas,
         estado: "aceptada",
-        aceptadaAt: new Date(),
+        updatedAt: new Date(),
       });
 
-      const userRef = db.collection("usuarios").doc(invite.invitadorUid);
+      const userRef = db.collection("usuarios").doc(inv.creadorUid);
       const userSnap = await tx.get(userRef);
       if (!userSnap.exists) return;
       const userData = userSnap.data();
@@ -96,32 +91,32 @@ async function onInvitadoReservaCompletada(invitadoUid) {
         updatedAt: new Date(),
       });
 
-      const movRef = db.collection("movimientos").doc();
+      const movRef = db.collection("puntos_movimientos").doc();
       tx.set(movRef, {
-        uid: invite.invitadorUid,
+        uid: inv.creadorUid,
         tipo: "invitacion",
-        cantidad: PUNTOS_INVITACION,
-        saldoResultante: nuevoSaldo,
-        referenciaTipo: "invitacion",
-        referenciaId: inviteDoc.id,
+        puntos: PUNTOS_INVITACION,
+        descripcion: "Invitación completada (2 reservas del amigo)",
         createdAt: new Date(),
       });
     });
 
-    logger.info({ invitadorUid: invite.invitadorUid, invitadoUid, puntos: PUNTOS_INVITACION }, "Invitation reward granted");
+    logger.info({ creadorUid: inv.creadorUid, invitadoUid, puntos: PUNTOS_INVITACION }, "Invitation reward granted");
   } else {
     await db.collection("invitaciones").doc(inviteDoc.id).update({
-      contadorReservasInvitado: nuevoContador,
+      reservasAmigo: nuevasReservas,
     });
   }
 }
 
 async function getMyInvites(uid) {
-  const snap = await db.collection("invitaciones").where("invitadorUid", "==", uid).orderBy("createdAt", "desc").get();
-  const enviadas = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const aceptadas = enviadas.filter((i) => i.estado === "aceptada").length;
-  const puntosTotales = aceptadas * PUNTOS_INVITACION;
-  return { enviadas, aceptadas, puntosTotales };
+  const [enviadasSnap, aceptadasSnap] = await Promise.all([
+    db.collection("invitaciones").where("creadorUid", "==", uid).orderBy("createdAt", "desc").get(),
+    db.collection("invitaciones").where("aceptadaPor", "==", uid).get(),
+  ]);
+  const enviadas = enviadasSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const aceptadas = aceptadasSnap.size;
+  return { enviadas, aceptadas, invitaciones: enviadas };
 }
 
 module.exports = { crearInvitacion, aceptarInvitacion, onInvitadoReservaCompletada, getMyInvites };

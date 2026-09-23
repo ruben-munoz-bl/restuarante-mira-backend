@@ -2,27 +2,35 @@ const { db } = require("../../middlewares/verifyFirebaseAuth");
 const { logger } = require("../../middlewares/errorHandler");
 
 async function getRevenue({ from, to } = {}) {
-  let query = db.collection("tickets").where("estado", "in", ["emitido", "pagado"]);
+  let query = db.collection("tickets");
   if (from) query = query.where("createdAt", ">=", new Date(from));
   if (to) query = query.where("createdAt", "<=", new Date(to));
 
-  const snapshot = await query.get();
-  let totalComision = 0;
+  const snapshot = await query.orderBy("createdAt", "desc").limit(500).get();
+  let total = 0;
+  let comisiones = 0;
   const porRestaurante = {};
 
   for (const doc of snapshot.docs) {
     const ticket = doc.data();
+    total += ticket.totalPagado || 0;
     const comision = ticket.importeComision || 0;
-    totalComision += comision;
+    comisiones += comision;
     const restId = ticket.restaurantId;
     if (!porRestaurante[restId]) {
-      porRestaurante[restId] = { comision: 0, tickets: 0, nombre: ticket.nombreRestaurante };
+      porRestaurante[restId] = { comision: 0, tickets: 0, nombre: ticket.restauranteNombre || ticket.nombreRestaurante };
     }
     porRestaurante[restId].comision += comision;
     porRestaurante[restId].tickets++;
   }
 
-  return { totalComision: Math.round(totalComision * 100) / 100, porRestaurante };
+  return {
+    total: Math.round(total * 100) / 100,
+    comisiones: Math.round(comisiones * 100) / 100,
+    tickets: snapshot.size,
+    totalComision: Math.round(comisiones * 100) / 100,
+    porRestaurante,
+  };
 }
 
 async function getFraudFlags() {

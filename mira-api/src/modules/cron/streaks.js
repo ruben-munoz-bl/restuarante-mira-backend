@@ -24,7 +24,6 @@ async function actualizarRachasReservas() {
   for (const doc of usuariosSnap.docs) {
     const uid = doc.id;
     const user = doc.data();
-    const racha = user.rachaReservas || { semanasConsecutivas: 0 };
 
     const reservaSnap = await db.collection("reservas")
       .where("uid", "==", uid)
@@ -36,15 +35,15 @@ async function actualizarRachasReservas() {
 
     if (!reservaSnap.empty) {
       batch.update(db.collection("usuarios").doc(uid), {
-        rachaReservas: {
-          semanasConsecutivas: (racha.semanasConsecutivas || 0) + 1,
-          multiplicador: 1.2,
-          ultimaSemanaISO: semanaAnterior,
-        },
+        rachaReservasSemanas: (user.rachaReservasSemanas || user.rachaReservas?.semanasConsecutivas || 0) + 1,
+        rachaReservasMultiplicador: 1.2,
+        rachaReservasUltimaSemana: semanaAnterior,
       });
     } else {
       batch.update(db.collection("usuarios").doc(uid), {
-        rachaReservas: { semanasConsecutivas: 0, multiplicador: 1, ultimaSemanaISO: semanaAnterior },
+        rachaReservasSemanas: 0,
+        rachaReservasMultiplicador: 1,
+        rachaReservasUltimaSemana: semanaAnterior,
       });
     }
 

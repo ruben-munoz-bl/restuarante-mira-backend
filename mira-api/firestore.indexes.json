@@ -1,17 +1,11 @@
 {
   "indexes": [
     {
-      "collectionGroup": "restaurants",
+      "collectionGroup": "reservas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "rating_yelp", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "restaurants",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "uid", "order": "ASCENDING" }
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "DESCENDING" }
       ]
     },
     {
@@ -19,6 +13,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "estado", "order": "ASCENDING" },
         { "fieldPath": "fecha", "order": "DESCENDING" }
       ]
     },
@@ -44,20 +39,6 @@
       "fields": [
         { "fieldPath": "restaurantId", "order": "ASCENDING" },
         { "fieldPath": "fecha", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "reservas",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "usuarioId", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "reservas",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "codigo", "order": "ASCENDING" }
       ]
     },
     {
@@ -94,20 +75,6 @@
       ]
     },
     {
-      "collectionGroup": "invitaciones",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "aceptadaPor", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "invitaciones",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "codigo", "order": "ASCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "tickets",
       "queryScope": "COLLECTION",
       "fields": [
@@ -137,34 +104,6 @@
       "fields": [
         { "fieldPath": "restauranteId", "order": "ASCENDING" },
         { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "resenas",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "usuarioId", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "contactos",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "uid", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "negocios",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "uid", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "negocios",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "estado", "order": "ASCENDING" }
       ]
     },
     {

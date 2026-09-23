@@ -4,6 +4,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   PORT: z.coerce.number().default(3000),
   PROJECT_ID: z.string().default("restaurante-mira-18e0c"),
+  GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
+  FIRESTORE_EMULATOR_HOST: z.string().optional(),
   CPC_CLICK: z.coerce.number().default(0.20),
   CPC_VIEW: z.coerce.number().default(0),
   PUNTOS_RESERVA_BASE: z.coerce.number().default(100),

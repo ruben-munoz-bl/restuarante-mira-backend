@@ -43,7 +43,8 @@ function generarInviteCode() {
 }
 
 function hoyISO() {
-  return new Date().toISOString().split("T")[0];
+  // Día local España (misma zona que points/service.hoyStr).
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid" }).format(new Date());
 }
 
 function semanaISO(date) {

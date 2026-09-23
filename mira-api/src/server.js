@@ -13,9 +13,10 @@ async function runCron(name, fn) {
   }
 }
 
-cron.schedule("*/15 * * * *", () => runCron("autoComplete", () => require("./modules/cron/autoComplete").autoCompletarReservas()), {
-  timezone: "UTC",
-});
+// Cron autoComplete desactivado por decisión (el estado lo gestiona el dashboard al subir ticket).
+// cron.schedule("*/15 * * * *", () => runCron("autoComplete", () => require("./modules/cron/autoComplete").autoCompletarReservas()), {
+//   timezone: "UTC",
+// });
 
 cron.schedule("0 1 * * 1", () => runCron("streaks", () => require("./modules/cron/streaks").actualizarRachasReservas()), {
   timezone: "UTC",

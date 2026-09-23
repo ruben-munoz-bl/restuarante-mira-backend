@@ -3,9 +3,18 @@ const { logger } = require("./errorHandler");
 
 const rateLimitStore = new Map();
 
+function rateLimitKey(req) {
+  const route = `${req.baseUrl || ""}${req.path}`;
+  return `${req.user?.uid || req.ip}:${route}`;
+}
+
+function clearRateLimits() {
+  rateLimitStore.clear();
+}
+
 function rateLimit(windowMs = 60000, max = 100) {
   return (req, res, next) => {
-    const key = `${req.user?.uid || req.ip}_${req.path}`;
+    const key = rateLimitKey(req);
     const now = Date.now();
     const windowStart = now - windowMs;
     if (!rateLimitStore.has(key)) rateLimitStore.set(key, []);
@@ -44,4 +53,4 @@ async function idempotency(req, res, next) {
   }
 }
 
-module.exports = { rateLimit, idempotency };
+module.exports = { rateLimit, idempotency, clearRateLimits };
