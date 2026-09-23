@@ -23,7 +23,20 @@ function jsonReplacer(_key, value) {
 
 app.set("json replacer", jsonReplacer);
 app.use(helmet());
-app.use(cors({ origin: ["http://localhost:5173", "https://mira.vercel.app", "https://restaurante-mira-frontend.vercel.app"] }));
+
+const LOCAL_ORIGINS = ["http://localhost:5173", "http://localhost:4173"];
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (LOCAL_ORIGINS.includes(origin)) return true;
+  try {
+    const u = new URL(origin);
+    return u.hostname === "vercel.app" || u.hostname.endsWith(".vercel.app");
+  } catch {
+    return false;
+  }
+}
+app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
+
 app.use(express.json());
 app.use(requestId);
 app.use(requestLogger);

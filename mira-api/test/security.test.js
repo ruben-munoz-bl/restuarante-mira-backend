@@ -183,6 +183,18 @@ test("SEC GET /v1/restaurants no expone campos sensibles de usuarios", async () 
 
 /* ───────── CORS ───────── */
 
+test("SEC CORS permite origins *.vercel.app (preview y prod)", async () => {
+  const origins = [
+    "https://restaurante-mira-frontend-qvyyaknis-rumu439-4703.vercel.app",
+    "https://restaurante-mira-frontend.vercel.app",
+    "https://mira.vercel.app",
+  ];
+  for (const origin of origins) {
+    const res = await request(app).get("/health").set("Origin", origin);
+    assert.equal(res.headers["access-control-allow-origin"], origin, `Debe permitir ${origin}`);
+  }
+});
+
 test("SEC CORS no permite origen desconocido (header ausente o restringido)", async () => {
   const res = await request(app)
     .get("/health")
@@ -193,7 +205,8 @@ test("SEC CORS no permite origen desconocido (header ausente o restringido)", as
   // si cors restringe, acao no debe ser evil salvo que esté en whitelist
   if (acao) {
     assert.ok(
-      ["http://localhost:5173", "https://mira.vercel.app", "https://restaurante-mira-frontend.vercel.app", "*"].includes(acao),
+      ["http://localhost:5173", "http://localhost:4173", "*"].includes(acao) ||
+        acao.endsWith(".vercel.app"),
       `Origin evil no debe estar permitido: ${acao}`,
     );
   }
