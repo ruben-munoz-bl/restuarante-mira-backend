@@ -2,7 +2,6 @@ const { Router } = require("express");
 const { z } = require("zod");
 const { verifyFirebaseAuth, db } = require("../../middlewares/verifyFirebaseAuth");
 const { validate } = require("../../middlewares/validate");
-const { rateLimit } = require("../../middlewares/rateLimit");
 const reviewService = require("./service");
 
 const router = Router();
@@ -13,7 +12,7 @@ const crearSchema = z.object({
   comentario: z.string().min(1),
 });
 
-router.post("/", verifyFirebaseAuth, validate(crearSchema), rateLimit(60000, 5), async (req, res, next) => {
+router.post("/", verifyFirebaseAuth, validate(crearSchema), async (req, res, next) => {
   try {
     const userSnap = await db.collection("usuarios").doc(req.user.uid).get();
     const userData = userSnap.exists ? userSnap.data() : {};

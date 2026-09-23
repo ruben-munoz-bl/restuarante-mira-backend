@@ -2,7 +2,6 @@ const { Router } = require("express");
 const { z } = require("zod");
 const { verifyFirebaseAuth } = require("../../middlewares/verifyFirebaseAuth");
 const { validate } = require("../../middlewares/validate");
-const { rateLimit } = require("../../middlewares/rateLimit");
 const { env } = require("../../config/env");
 const pointsService = require("./service");
 const dailyLogin = require("./dailyLogin");
@@ -41,7 +40,7 @@ router.get("/ledger", verifyFirebaseAuth, async (req, res, next) => {
 });
 
 const redeemSchema = z.object({ puntos: z.number().int().positive() });
-router.post("/redeem", verifyFirebaseAuth, validate(redeemSchema), rateLimit(60000, 10), async (req, res, next) => {
+router.post("/redeem", verifyFirebaseAuth, validate(redeemSchema), async (req, res, next) => {
   try {
     const result = await pointsService.redeem(req.user.uid, req.validated.puntos);
     res.status(201).json(result);
@@ -76,7 +75,7 @@ router.post("/wheel", verifyFirebaseAuth, async (req, res, next) => {
   }
 });
 
-router.post("/review", verifyFirebaseAuth, rateLimit(60000, 5), async (req, res, next) => {
+router.post("/review", verifyFirebaseAuth, async (req, res, next) => {
   try {
     const result = await pointsService.reviewPoints(req.user.uid);
     res.status(201).json(result);

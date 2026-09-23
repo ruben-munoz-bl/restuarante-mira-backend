@@ -2,7 +2,6 @@ const { Router } = require("express");
 const { z } = require("zod");
 const { verifyFirebaseAuth } = require("../../middlewares/verifyFirebaseAuth");
 const { validate } = require("../../middlewares/validate");
-const { rateLimit } = require("../../middlewares/rateLimit");
 const invitationService = require("./service");
 
 const router = Router();
@@ -10,7 +9,7 @@ const router = Router();
 const inviteSchema = z.object({ email: z.string().email().optional(), emailInvitado: z.string().email().optional() })
   .refine((d) => d.email || d.emailInvitado, { message: "email requerido" });
 
-router.post("/", verifyFirebaseAuth, validate(inviteSchema), rateLimit(3600000, 5), async (req, res, next) => {
+router.post("/", verifyFirebaseAuth, validate(inviteSchema), async (req, res, next) => {
   try {
     const email = req.validated.email || req.validated.emailInvitado;
     const result = await invitationService.crearInvitacion(req.user.uid, email);

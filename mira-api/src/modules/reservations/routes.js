@@ -2,7 +2,7 @@ const { Router } = require("express");
 const { z } = require("zod");
 const { verifyFirebaseAuth, authorize, optionalAuth } = require("../../middlewares/verifyFirebaseAuth");
 const { validate } = require("../../middlewares/validate");
-const { rateLimit, idempotency } = require("../../middlewares/rateLimit");
+const { idempotency } = require("../../middlewares/rateLimit");
 const reservationService = require("./service");
 
 const router = Router();
@@ -34,7 +34,7 @@ router.get("/availability", optionalAuth, async (req, res, next) => {
   }
 });
 
-router.post("/", verifyFirebaseAuth, validate(crearReservaSchema), rateLimit(), idempotency, async (req, res, next) => {
+router.post("/", verifyFirebaseAuth, validate(crearReservaSchema), idempotency, async (req, res, next) => {
   try {
     const result = await reservationService.crearReserva({
       uid: req.user.uid,

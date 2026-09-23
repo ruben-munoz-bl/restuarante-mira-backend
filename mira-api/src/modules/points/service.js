@@ -162,9 +162,12 @@ async function claimWheelReward(uid, { force = false } = {}) {
     const userSnap = await tx.get(userRef);
     if (!userSnap.exists) throw new Error("Usuario no encontrado");
     const data = userSnap.data();
+    // Misma proyección que getBalance: si hoy toca día 7, la ruleta está abierta
+    // aunque el valor guardado siga en 6 (se confirma al reclamar/girar).
+    const proy = calcRachaLogin(data);
     const dias = data.rachaLoginDias || 0;
-    // Cada 7 días se gira la ruleta (salvo force en test/dev).
-    if (!force && dias < 7) {
+    const dia7 = Boolean(proy.dia7Disponible) || dias >= 7 || proy.dias >= 7;
+    if (!force && !dia7) {
       const err = new Error(`Ruleta no disponible: racha ${dias}/7`);
       err.status = 403;
       err.code = "WHEEL_LOCKED";
