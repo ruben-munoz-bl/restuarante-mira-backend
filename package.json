@@ -1,0 +1,19 @@
+{
+  "name": "restuarante-mira-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monorepo backend MIRA: mira-api (Express) + yelp-connection (scripts de datos)",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "npm run start:api",
+    "start:api": "npm --prefix mira-api start",
+    "start:yelp": "npm --prefix yelp-connection start",
+    "dev": "npm --prefix mira-api run dev",
+    "test": "npm --prefix mira-api test",
+    "install:all": "npm --prefix mira-api install && npm --prefix yelp-connection install",
+    "ci:api": "npm --prefix mira-api ci",
+    "ci:yelp": "npm --prefix yelp-connection ci"
+  }
+}

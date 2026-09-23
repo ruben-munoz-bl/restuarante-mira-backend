@@ -9,6 +9,42 @@ Dos piezas separadas:
 
 El frontend (`restaurante-mira-frontend`) **no** toca Firestore directamente: solo llama a `mira-api` (más la SDK de Firebase Auth para login/token).
 
+### Raíz del monorepo (Render / comandos únicos)
+
+`package.json` en la raíz deja arrancar cada pieza **desde la raíz** del repo (útil en Render u otros PaaS):
+
+| Comando raíz | Qué hace |
+|---|---|
+| `npm start` / `npm run start:api` | Arranca **mira-api** (`node mira-api/src/server.js`) |
+| `npm run start:yelp` | Ejecuta **yelp-connection** (`node yelp-connection/index.js`) |
+| `npm run install:all` | `npm install` en ambas carpetas |
+| `npm run ci:api` / `npm run ci:yelp` | Instalación limpia (`npm ci`) de cada una |
+| `npm test` / `npm run dev` | Tests / watch de mira-api |
+
+**Render — Web Service (mira-api):**
+
+1. Repo: este backend, rama `main`.
+2. **Root Directory** vacío (raíz del monorepo).
+3. **Build Command:** `npm run ci:api`
+4. **Start Command:** `npm run start:api`
+5. **Env:** `NODE_ENV=production`, `PORT` (Render lo inyecta), `PROJECT_ID`, y credenciales Firebase  
+   ( `GOOGLE_APPLICATION_CREDENTIALS` + archivo del service account, o el JSON pegado en una env var según montes el volumen/secrets).
+
+**Render — Job / Worker (yelp-connection)** — es un script one-shot (seed), **no** un servidor HTTP:
+
+1. Mismo repo.
+2. **Build Command:** `npm run ci:yelp`
+3. **Start Command:** `npm run start:yelp`
+4. Tipo de servicio: *Background Worker* o cron/job (termina solo al acabar el pipeline).
+
+Local, sin Render:
+
+```bash
+npm run install:all   # una vez
+npm run start:api     # API en :3000
+npm run start:yelp    # pipeline Yelp → Firestore
+```
+
 ---
 
 ## 1. `yelp-connection` — Pipeline de datos
