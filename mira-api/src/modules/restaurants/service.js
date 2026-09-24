@@ -141,7 +141,10 @@ async function contarRestaurantes() {
 async function obtenerRestaurante(id) {
   const doc = await db.collection("restaurants").doc(id).get();
   if (!doc.exists) {
-    throw new Error("Restaurante no encontrado");
+    const err = new Error("Restaurante no encontrado");
+    err.status = 404;
+    err.code = "NOT_FOUND";
+    throw err;
   }
   return mapearDoc(doc.id, doc.data());
 }

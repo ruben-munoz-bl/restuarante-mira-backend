@@ -116,6 +116,15 @@ test("SEC empresa → GET /v1/dashboard/my-restaurants → 200", async () => {
   assert.equal(res.status, 200);
 });
 
+test("SEC empresa → GET /v1/dashboard/my-restaurant sin restaurante → 404 NOT_FOUND", async () => {
+  const res = await request(app)
+    .get("/v1/dashboard/my-restaurant")
+    .set("Authorization", `Bearer ${tokens.empresa}`);
+  assert.equal(res.status, 404, JSON.stringify(res.body));
+  assert.equal(res.body.error, "NOT_FOUND");
+  assert.equal(res.body.message, "Restaurante no encontrado");
+});
+
 /* ───────── Validación (zod) ───────── */
 
 test("VAL POST /v1/reviews body inválido → 400", async () => {

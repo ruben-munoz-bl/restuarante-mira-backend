@@ -25,9 +25,16 @@ function generarCodigo() {
   return `MIRA-${Date.now().toString(36).toUpperCase().slice(-6)}`;
 }
 
+function notFoundError() {
+  const err = new Error("Restaurante no encontrado");
+  err.status = 404;
+  err.code = "NOT_FOUND";
+  return err;
+}
+
 async function getDisponibilidad(restaurantId, fecha, hora) {
   const restSnap = await db.collection("restaurants").doc(restaurantId).get();
-  if (!restSnap.exists) throw new Error("Restaurante no encontrado");
+  if (!restSnap.exists) throw notFoundError();
   const restaurante = restSnap.data();
   const limite = limiteDelLocal(restaurante);
   if (!fecha || !hora) return { limite, ocupadas: 0, libres: limite };
@@ -44,7 +51,7 @@ async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, com
 
   const result = await db.runTransaction(async (tx) => {
     const restSnap = await tx.get(db.collection("restaurants").doc(restId));
-    if (!restSnap.exists) throw new Error("Restaurante no encontrado");
+    if (!restSnap.exists) throw notFoundError();
     const restaurante = restSnap.data();
 
     const limite = limiteDelLocal(restaurante);

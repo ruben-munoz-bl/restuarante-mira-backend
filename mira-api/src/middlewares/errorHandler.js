@@ -9,9 +9,10 @@ function errorHandler(err, req, res, _next) {
   const requestId = req.headers["x-request-id"] || "unknown";
   logger.error({ requestId, error: err.message, stack: err.stack }, "Unhandled error");
   const status = err.status || 500;
+  const isServerError = status >= 500;
   res.status(status).json({
     error: err.code || "INTERNAL_ERROR",
-    message: process.env.NODE_ENV === "production" ? "Error interno" : err.message,
+    message: process.env.NODE_ENV === "production" && isServerError ? "Error interno" : err.message,
     requestId,
   });
 }

@@ -3,7 +3,12 @@ const { logger } = require("../../middlewares/errorHandler");
 
 async function crearPromocion({ uid, restauranteId, tipo, fechaInicio, fechaFin, presupuestoTotal, cpc, puntosExtraPorReserva }) {
   const restSnap = await db.collection("restaurants").doc(restauranteId).get();
-  if (!restSnap.exists) throw new Error("Restaurante no encontrado");
+  if (!restSnap.exists) {
+    const err = new Error("Restaurante no encontrado");
+    err.status = 404;
+    err.code = "NOT_FOUND";
+    throw err;
+  }
   const rest = restSnap.data();
   if (rest.ownerUid && rest.ownerUid !== uid) throw new Error("No eres dueño de este restaurante");
 

@@ -190,20 +190,27 @@ async function listMyRestaurants(uid, email, currentId) {
   return lista;
 }
 
+function notFoundError() {
+  const err = new Error("Restaurante no encontrado");
+  err.status = 404;
+  err.code = "NOT_FOUND";
+  return err;
+}
+
 async function resolveRestaurantId(uid, restaurantIdOverride) {
   if (restaurantIdOverride) return restaurantIdOverride;
   const userDoc = await db.collection("usuarios").doc(uid).get();
   const userData = userDoc.exists ? userDoc.data() : {};
   if (userData.restaurantId) return userData.restaurantId;
   const snap = await db.collection("restaurants").where("uid", "==", uid).limit(1).get();
-  if (snap.empty) throw new Error("Restaurante no encontrado");
+  if (snap.empty) throw notFoundError();
   return snap.docs[0].id;
 }
 
 async function getMyRestaurant(uid, restaurantIdOverride) {
   const restaurantId = await resolveRestaurantId(uid, restaurantIdOverride);
   const restDoc = await db.collection("restaurants").doc(restaurantId).get();
-  if (!restDoc.exists) throw new Error("Restaurante no encontrado");
+  if (!restDoc.exists) throw notFoundError();
   const restaurante = { id: restDoc.id, ...restDoc.data() };
 
   const [reservas, ticketsSnap, finanzasSnap] = await Promise.all([
