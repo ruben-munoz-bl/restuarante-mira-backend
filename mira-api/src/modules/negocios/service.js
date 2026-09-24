@@ -66,7 +66,7 @@ async function aprobarNegocio(negocioId) {
   const restRef = db.collection("restaurants").doc();
   const userRef = db.collection("usuarios").doc(n.uid);
   const userSnap = await userRef.get().catch(() => null);
-  const userData = userSnap && userSnap.exists() ? userSnap.data() : {};
+  const userData = userSnap && userSnap.exists ? userSnap.data() : {};
 
   const restaurantIds = Array.isArray(userData.restaurantIds) ? [...userData.restaurantIds] : [];
   if (userData.restaurantId && !restaurantIds.includes(userData.restaurantId)) {
@@ -105,7 +105,8 @@ async function aprobarNegocio(negocioId) {
       comisionPct: Number(require("../../config/env").env.COMISION_PCT) || 8,
       creado: new Date(),
     });
-    tx.update(userRef, userUpdate);
+    if (userSnap && userSnap.exists) tx.update(userRef, userUpdate);
+    else tx.set(userRef, userUpdate, { merge: true });
     tx.update(ref, { estado: "aprobada", restaurantId: restRef.id });
   });
 
