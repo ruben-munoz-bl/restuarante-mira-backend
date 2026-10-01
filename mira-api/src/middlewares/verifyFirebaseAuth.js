@@ -10,6 +10,14 @@ if (!admin.apps.length) {
     : path.join(__dirname, "..", "..", "serviceAccountKey.json");
   if (fs.existsSync(keyPath)) {
     opts.credential = admin.credential.cert(require(keyPath));
+  } else {
+    // No es fatal: initializeApp acepta projectId y usa las credenciales por
+    // defecto de la plataforma. Pero si no hay ninguna, Firestore fallará en
+    // cada petición, así que lo dejamos escrito en el log del arranque.
+    console.warn(
+      `[firebase] No se encontró credencial en "${keyPath}". Si las peticiones a Firestore fallan, monta la clave: ` +
+        "en Render, usa un Secret File y apunta GOOGLE_APPLICATION_CREDENTIALS a /etc/secrets/serviceAccountKey.json",
+    );
   }
   admin.initializeApp(opts);
 }
