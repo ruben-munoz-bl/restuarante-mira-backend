@@ -2,6 +2,15 @@ const { z } = require("zod");
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
+  GEMINI_API_KEY: z.string().optional(),
+  AI_PROVIDER: z.string().default("gemini"),
+  AI_MODEL: z.string().default("gemini-3.5-flash"),
+  AI_FALLBACK_MODEL: z.string().default("gemini-3.5-flash-lite"),
+  AI_MAX_TOKENS: z.coerce.number().default(350),
+  AI_TEMPERATURE: z.coerce.number().default(0.7),
+// Flag de tools: "all" = todas (por defecto). "" = solo las 7 core de Fase 1.
+// O lista separada por comas para activar solo tools concretas.
+AI_ENABLED_TOOLS: z.string().default("all"),
   PORT: z.coerce.number().default(3000),
   PROJECT_ID: z.string().default("restaurante-mira-18e0c"),
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),
@@ -31,7 +40,12 @@ const envSchema = z.object({
   RATE_LIMIT_MAX: z.coerce.number().default(100),
 });
 
-const parsed = envSchema.safeParse(process.env);
+const refined = envSchema.refine(
+  (d) => d.NODE_ENV !== "production" || Boolean(d.GEMINI_API_KEY),
+  { message: "GEMINI_API_KEY es obligatoria en producción", path: ["GEMINI_API_KEY"] },
+);
+
+const parsed = refined.safeParse(process.env);
 
 if (!parsed.success) {
   console.error("Invalid env vars:", parsed.error.flatten().fieldErrors);
