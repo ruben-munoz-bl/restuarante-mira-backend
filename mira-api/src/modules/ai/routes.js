@@ -24,6 +24,7 @@ router.post("/agent", optionalAuth, rateLimit(60000, 10), validate(agentSchema),
       needsConfirm: out.needsConfirm,
       provider: out.provider,
       model: out.model,
+      retryable: out.retryable === true ? true : undefined,
     });
   } catch (err) {
     next(err);

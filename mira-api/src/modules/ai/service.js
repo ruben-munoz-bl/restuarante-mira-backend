@@ -119,6 +119,7 @@ async function runAgent({ message, history = [], confirmId, user = null, request
       provider: env.AI_PROVIDER,
       model: null,
       promptHash: hash,
+      retryable: true,
     };
   }
 
@@ -149,6 +150,7 @@ async function runAgent({ message, history = [], confirmId, user = null, request
     provider: provider.name,
     model: out.model,
     promptHash: hash,
+    retryable: Boolean(out.failed),
   };
 
   logger.info(

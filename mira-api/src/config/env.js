@@ -4,8 +4,8 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   GEMINI_API_KEY: z.string().optional(),
   AI_PROVIDER: z.string().default("gemini"),
-  AI_MODEL: z.string().default("gemini-3.5-flash"),
-  AI_FALLBACK_MODEL: z.string().default("gemini-3.5-flash-lite"),
+  AI_MODEL: z.string().default("gemini-3.5-flash-lite"),
+  AI_FALLBACK_MODEL: z.string().default("gemini-3.5-flash"),
   AI_MAX_TOKENS: z.coerce.number().default(350),
   AI_TEMPERATURE: z.coerce.number().default(0.7),
 // Flag de tools: "all" = todas (por defecto). "" = solo las 7 core de Fase 1.

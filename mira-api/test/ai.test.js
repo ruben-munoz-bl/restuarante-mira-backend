@@ -180,6 +180,18 @@ test("snapshot del prompt: hash de CONTEXT + GUARDRAILS", () => {
   assert.match(prompt, /PROTOCOLO ReAct/);
 });
 
+test("degradación: si el provider cae siempre responde 200 con retryable", async () => {
+  geminiMock.setGeminiHandler(() => {
+    throw new Error("503 Service Unavailable");
+  });
+
+  const res = await post({ message: "hola" });
+  assert.equal(res.status, 200, "nunca debe devolver 5xx al usuario");
+  assert.ok(res.body.reply.length > 0, "siempre debe devolver texto");
+  assert.equal(res.body.retryable, true, "el frontend debe poder reintentar");
+  assert.doesNotMatch(res.body.reply, /no est\u00e1 disponible/i);
+});
+
 test("provider fallback: si falla AI_MODEL se usa AI_FALLBACK_MODEL", async () => {
   const { env } = require("../src/config/env");
   let n = 0;

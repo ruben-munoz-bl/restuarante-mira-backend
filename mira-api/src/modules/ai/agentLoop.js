@@ -3,10 +3,10 @@ const checkReply = require("./guardrails/checkReply");
 const { logger } = require("../../middlewares/errorHandler");
 
 const MAX_ITER = 5;
-const DEADLINE_MS = 25000;
-// Presupuesto para seguir encadenando tools. Gemini 3.5-flash piensa (~6-10s por
-// llamada), así que tras este margen forzamos la respuesta final sin tools.
-const TOOL_BUDGET_MS = 9000;
+const DEADLINE_MS = 20000;
+// Presupuesto para seguir encadenando tools. Responder rápido es mejor que
+// agotar tiempo y cuota: forzamos el cierre para cerrar el turno con datos.
+const TOOL_BUDGET_MS = 7000;
 const MAX_RESULT_CHARS = 2000;
 
 function truncate(value) {
@@ -104,7 +104,9 @@ async function runAgentLoop({ provider, system, history, message, user, onPendin
       logger.error({ code: err.code || "AI_PROVIDER_ERROR", error: err.message, iter }, "ai.provider.generate");
       if (!reply && actions.length === 0) {
         return {
-          reply: "El asistente no está disponible ahora mismo. Inténtalo de nuevo en unos segundos.",
+          reply:
+            "Ahora mismo no puedo consultar nada, es un problema temporal de mi conexión. " +
+            "Prueba a enviarlo otra vez en unos segundos y te lo resuelvo.",
           actions,
           pending,
           model,
@@ -198,16 +200,24 @@ async function runAgentLoop({ provider, system, history, message, user, onPendin
       if (result.ok) lastData = { tool: tool.name, data: result.data };
     }
 
+    // El texto que venga en un turno con tool calls es gratis: lo guardamos por si
+    // no llegamos a redactar la respuesta final.
+    const turnText = (out.text || "").trim();
+    if (turnText && !reply) reply = turnText;
+
     messages.push({ role: "user", functionResults: results });
 
     // Presupuesto de tools agotado (o sin tiempo): cerramos con una respuesta final sin tools.
-    if (pending || Date.now() - startedAt > TOOL_BUDGET_MS || Date.now() > deadline - 4000) {
-      try {
-        const finalText = await forceFinal();
-        model = model || null;
-        if (finalText) reply = finalText;
-      } catch (err) {
-        logger.warn({ code: err.code || "AI_FINAL_ERROR", error: err.message }, "ai.loop.forceFinal");
+    // Si ya hay datos o una confirmación que redactar, merece la pena la llamada extra;
+    // si no hay nada que decir, respondemos directamente y ahorramos cuota.
+    if (pending || Date.now() - startedAt > TOOL_BUDGET_MS || Date.now() > deadline - 3500) {
+      if (pending || lastData) {
+        try {
+          const finalText = await forceFinal();
+          if (finalText) reply = finalText;
+        } catch (err) {
+          logger.warn({ code: err.code || "AI_FINAL_ERROR", error: err.message }, "ai.loop.forceFinal");
+        }
       }
       break;
     }

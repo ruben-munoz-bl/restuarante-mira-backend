@@ -93,9 +93,12 @@ async function generateOnce(genAI, model, system, contents, tools, signal) {
   return parseResult(res, model);
 }
 
-// Errores transitorios de cuota/carga (429/5xx/red): merece la pena un reintento
-// con espera corta antes de saltar al modelo de fallback.
-const TRANSIENT = /429|500|502|503|504|Too Many|RESOURCE_EXHAUSTED|UNAVAILABLE|high demand|overloaded|timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|socket hang up|fetch failed/i;
+// Clasificación de errores:
+// - quota (429): NO se reintenta en el mismo modelo, la cuota no se repone en
+//   milisegundos. Se pasa directo al modelo de reserva (otra cuota disponible).
+// - carga/red (5xx, timeout): sí merece un reintento con espera corta.
+const QUOTA = /429|Too Many|RESOURCE_EXHAUSTED|quota/i;
+const TRANSIENT = /500|502|503|504|UNAVAILABLE|high demand|overloaded|timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|socket hang up|fetch failed/i;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -106,8 +109,8 @@ function retryDelayMs(err) {
     ? err.response.headers.get("retry-after")
     : null;
   const parsed = parseInt(header, 10);
-  if (Number.isFinite(parsed)) return Math.min(Math.max(parsed * 1000, 200), 3000);
-  return 600;
+  if (Number.isFinite(parsed)) return Math.min(Math.max(parsed * 1000, 200), 2000);
+  return 350 + Math.floor(Math.random() * 250);
 }
 
 async function generateWithRetry(genAI, model, system, contents, tools, signal) {
@@ -117,7 +120,9 @@ async function generateWithRetry(genAI, model, system, contents, tools, signal) 
       return await generateOnce(genAI, model, system, contents, tools, signal);
     } catch (err) {
       lastErr = err;
-      if (attempt === 1 || !TRANSIENT.test(String(err && err.message))) break;
+      const message = String(err && err.message);
+      if (attempt === RETRY_ATTEMPTS - 1) break;
+      if (QUOTA.test(message) || !TRANSIENT.test(message)) break;
       await sleep(retryDelayMs(err));
     }
   }

@@ -43,7 +43,8 @@ Respuesta: cabecera `X-Prompt-Hash` (hash de la versión del prompt, para trazab
     "payload": { "tool": "createReservation", "args": { } }
   },
   "provider": "gemini",
-  "model": "gemini-3.5-flash-lite"
+  "model": "gemini-3.5-flash-lite",
+  "retryable": true
 }
 ```
 
@@ -53,6 +54,7 @@ Respuesta: cabecera `X-Prompt-Hash` (hash de la versión del prompt, para trazab
   - `result.pending === true` → preparado, **sin ejecutar** (espera confirmación).
   - `result.ok === false` → error: `result.error` + `result.message`.
 - `needsConfirm` — **clave del flujo de 2 pasos**. Si aparece, NADA se ha ejecutado todavía.
+- `retryable` — solo aparece como `true` cuando el proveedor de IA falló (cuota o saturación). **El HTTP sigue siendo 200**: puedes reenviar el mismo `message` sin molestar al usuario.
 
 ## Flujo de confirmación (acciones mutantes)
 
@@ -105,7 +107,9 @@ Dentro de `actions[].result.error` (van en HTTP 200):
 
 ## Notas para la UI
 
-- El turno es síncrono: hasta ~25 s (máx. 5 iteraciones de tools). Timeout de red ≥ 30 s y spinner.
+- Latencia real: **1-6 s** por turno. Timeout de red ≥ 25 s y spinner.
+- **Reintento automático**: si llega `retryable: true`, reenvía el mismo `message` con un backoff de 2-4 s hasta 2 veces sin mostrar error al usuario (es saturación puntual de la IA).
+- El proveedor en cascada es `gemini-3.5-flash-lite` (rápido) → `gemini-3.5-flash` (más capaz). `model` te dice cuál respondió.
 - Muestra siempre `reply`; `actions` solo si quieres modo debug/consola.
 - Mantén `history` en el cliente: reenvía las últimas 10 entradas para dar contexto.
 - El agente nunca inventa: si no hay datos, lo dice. No parses `reply` para extraer datos: usa `actions[].result.data`.
