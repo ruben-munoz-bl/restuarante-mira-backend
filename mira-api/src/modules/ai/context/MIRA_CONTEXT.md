@@ -106,7 +106,8 @@ Valores frecuentes: `Spanish`, `Tapas Bars`, `Mediterranean`, `Catalan`, `Italia
 `cocina` es **exacto y sensible a mayúsculas** (`Italian` sí coincide, `italian`/`italiana` no). Para búsquedas en lenguaje natural usa `q` (normalizado) o la tool `searchRestaurants`, que reintenta con `q` cuando el filtro exacto no devuelve nada.
 
 ## 13. Fechas y zona
-Fecha de reserva: formato estricto **`YYYY-MM-DD`** (regex en el body) y debe ser futura.
+Fecha de reserva: formato estricto **`YYYY-MM-DD`** (regex en el body) y debe ser **de hoy o futura**; el agente bloquea cualquier fecha anterior (incluido el día de hoy si la franja ya ha pasado).
+El prompt del agente incluye siempre la fecha y hora actuales en Europe/Madrid para resolver referencias relativas ("junio", "el viernes", "mañana") a la siguiente ocurrencia futura; nunca a una ya pasada.
 Zona horaria canónica: **Europe/Madrid** (cálculo de "hoy" en login/racha, `hoyISO()`).
 Todas las respuestas serializan fechas como **ISO-8601** (`…Z` o con offset) gracias al json replacer.
 

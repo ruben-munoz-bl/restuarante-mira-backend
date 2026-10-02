@@ -1,9 +1,30 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const { hoyISO } = require("../../config/constants");
 
 const CONTEXT_PATH = path.join(__dirname, "context", "MIRA_CONTEXT.md");
 const GUARDRAILS_PATH = path.join(__dirname, "guardrails", "MIRA_GUARDRAILS.md");
+
+const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+function ahoraMadrid() {
+  const iso = hoyISO();
+  // Mediodía UTC: el día de la semana es el mismo en cualquier zona horaria.
+  const fecha = new Date(`${iso}T12:00:00Z`);
+  const diaSemana = DIAS_SEMANA[fecha.getUTCDay()] || "";
+  const hora = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Madrid",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date());
+  return {
+    iso,
+    texto: `${iso} (${diaSemana} ${Number(iso.slice(8, 10))} ${MESES[Number(iso.slice(5, 7)) - 1]} de ${iso.slice(0, 4)}, ${hora} h, Europe/Madrid)`,
+  };
+}
 
 const REACT_RULES = [
   "PROTOCOLO ReAct (obligatorio):",
@@ -46,8 +67,14 @@ function buildSystemPrompt(user) {
     "# CONTEXTO MIRA — fuente de verdad del conocimiento general (NO sustituye a las tools)",
     context || "(contexto no disponible)",
     "# SESIÓN ACTUAL",
+    `- Fecha y hora actuales: ${ahoraMadrid().texto}`,
     session,
     REACT_RULES.join("\n"),
+    `REGLAS DE FECHA (crítico): ahora mismo es ${ahoraMadrid().texto}.
+- NUNCA reserves en una fecha anterior a hoy.
+- Si el usuario dice un mes o día sin año ("junio", "el viernes", "mañana", "la semana que viene"), calcula la PRIMERA ocurrencia FUTURA a partir de hoy y pásala a YYYY-MM-DD.
+- Si la fecha que te han dado ya ha pasado, no la uses: dilo y ofrece la siguiente fecha futura.
+- Si la fecha es ambigua, pregunta antes de reservar.`,
   ].join("\n\n");
 
   return { prompt, hash };

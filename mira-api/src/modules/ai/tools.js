@@ -1,7 +1,7 @@
 "use strict";
 
 const crypto = require("crypto");
-const { SLOTS } = require("../../config/constants");
+const { SLOTS, hoyISO } = require("../../config/constants");
 const { env } = require("../../config/env");
 
 const restaurantService = require("../restaurants/service");
@@ -23,6 +23,48 @@ const list = (description, items, extra) => ({ type: "ARRAY", description, items
 const schema = (properties, required) => ({ type: "OBJECT", properties: properties || {}, required: required || [] });
 
 const FECHA = () => str("Fecha en formato YYYY-MM-DD.", { pattern: DATE_PATTERN });
+
+const DIAS_SEMANA = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+function hoyMadrid() {
+  const iso = hoyISO();
+  // Mediodía UTC: el día de la semana es el mismo en cualquier zona horaria.
+  const d = new Date(`${iso}T12:00:00Z`);
+  return {
+    iso,
+    label: `${DIAS_SEMANA[d.getUTCDay()]} ${Number(iso.slice(8, 10))} ${MESES[Number(iso.slice(5, 7)) - 1]} de ${iso.slice(0, 4)}`,
+    hora: new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Madrid",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date()),
+  };
+}
+
+// Una reserva solo puede ser para hoy (si la franja aún no ha pasado) o futura.
+function validarFechaReserva(fecha, hora) {
+  const { iso, label, hora: ahora } = hoyMadrid();
+  if (typeof fecha !== "string" || !new RegExp(DATE_PATTERN).test(fecha)) {
+    throw Object.assign(new Error(`Necesito la fecha en formato YYYY-MM-DD (hoy es ${iso}).`), {
+      code: "VALIDATION_ERROR",
+    });
+  }
+  if (fecha < iso) {
+    throw Object.assign(
+      new Error(`Esa fecha ya ha pasado: ${fecha} es anterior a hoy (${label}). Pídeme una fecha a partir de hoy.`),
+      { code: "VALIDATION_ERROR" },
+    );
+  }
+  if (fecha === iso && typeof hora === "string" && hora < ahora) {
+    throw Object.assign(
+      new Error(`Hoy es ${label} y son las ${ahora}: la franja de las ${hora} ya ha pasado. Elige una hora posterior o otro día.`),
+      { code: "VALIDATION_ERROR" },
+    );
+  }
+  return fecha;
+}
 const HORA = () => str("Franja horaria disponible.", { enum: SLOTS });
 
 const TOOLS = [
@@ -110,8 +152,19 @@ const TOOLS = [
       fecha: FECHA(),
       hora: HORA(),
     }, ["restauranteId", "fecha", "hora"]),
-    handler: async (ctx, args) =>
-      reservationService.getDisponibilidad(args.restauranteId, args.fecha, args.hora),
+    handler: async (ctx, args) => {
+      const { iso, label } = hoyMadrid();
+      if (typeof args.fecha === "string" && args.fecha < iso) {
+        return {
+          disponible: false,
+          error: "VALIDATION_ERROR",
+          mensaje: `La fecha ${args.fecha} ya ha pasado (hoy es ${label}). No se puede reservar en el pasado.`,
+        };
+      }
+      const result = await reservationService.getDisponibilidad(args.restauranteId, args.fecha, args.hora);
+      if (result && typeof result === "object") result.hoy = `${iso} (${label})`;
+      return result;
+    },
   },
   {
     name: "listPromotions",
@@ -157,8 +210,9 @@ const TOOLS = [
       comensales: num("Número de comensales (1-10).", { minimum: 1, maximum: 10 }),
       comentarios: str("Comentario opcional para el restaurante."),
     }, ["restauranteId", "fecha", "hora", "comensales"]),
-    handler: async (ctx, args) =>
-      reservationService.crearReserva({
+    handler: async (ctx, args) => {
+      validarFechaReserva(args.fecha, args.hora);
+      return reservationService.crearReserva({
         uid: ctx.user.uid,
         restauranteId: args.restauranteId,
         fecha: args.fecha,
@@ -171,7 +225,8 @@ const TOOLS = [
           displayName: ctx.user.displayName || ctx.user.nombre || "",
         },
         idempotencyKey: crypto.randomUUID(),
-      }),
+      });
+    },
     summarize: (args) => `${args.restauranteId} · ${args.fecha} ${args.hora} · ${args.comensales} pax`,
   },
   {

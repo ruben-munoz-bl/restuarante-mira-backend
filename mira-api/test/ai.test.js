@@ -14,7 +14,7 @@ const { seedBase, store, tokens } = mockFirebase;
 const AGENT = "/v1/ai/agent";
 // Snapshot del prompt (CONTEXT + GUARDRAILS). Si cambia un .md, este test falla a propósito:
 // revisa el cambio y actualiza la constante.
-const PROMPT_HASH_SNAPSHOT = "9d562bd243f8fbf3";
+const PROMPT_HASH_SNAPSHOT = "d3abcdb1ce8f4ffa";
 
 function post(body, token) {
   const req = request(app).post(AGENT);
@@ -215,6 +215,68 @@ test("Idempotency-Key: un 500 cacheado nunca se vuelve a servir", async () => {
   assert.equal(res.status, 200, "debe ignorar el error cacheado y responder de verdad");
   assert.equal(res.body.reply, "respuesta buena");
   assert.equal(res.body.error, undefined);
+});
+
+test("fechas: el prompt incluye la fecha actual para resolver meses relativos", () => {
+  const { hoyISO } = require("../src/config/constants");
+  const { prompt } = buildSystemPrompt(null);
+  assert.match(prompt, new RegExp(hoyISO()), "el prompt debe traer el día actual (Europe/Madrid)");
+  assert.match(prompt, /NUNCA reserves en una fecha anterior a hoy/);
+});
+
+test("fechas: NUNCA se crea una reserva en fecha pasada", async () => {
+  const { getTool } = require("../src/modules/ai/tools");
+  const { store } = require("./helpers/mockFirebase");
+  const { hoyISO } = require("../src/config/constants");
+
+  const tool = getTool("createReservation");
+  const user = { uid: "u-cli", email: "cli@test.local", role: "cliente" };
+  const pasado = "2020-01-15";
+  const futuro = "2099-12-31";
+
+  // Pasado: bloqueado con VALIDATION_ERROR y sin tocar Firestore.
+  await assert.rejects(
+    () => tool.handler({ user }, { restauranteId: "r1", fecha: pasado, hora: "21:00", comensales: 2 }),
+    (err) => {
+      assert.equal(err.code, "VALIDATION_ERROR");
+      assert.match(err.message, /ya ha pasado|anterior a hoy/i);
+      return true;
+    },
+  );
+  assert.equal(store.has("reservas") ? store.get("reservas").size : 0, 0, "no debe crear nada");
+
+  // El mes pasado que dijo el usuario: hoy es 2026-10, junio sería 2026-06 (pasado).
+  const junioDeEsteAnio = `${hoyISO().slice(0, 4)}-06-15`;
+  if (junioDeEsteAnio < hoyISO()) {
+    await assert.rejects(
+      () => tool.handler({ user }, { restauranteId: "r1", fecha: junioDeEsteAnio, hora: "21:00", comensales: 2 }),
+      (err) => err.code === "VALIDATION_ERROR",
+    );
+  }
+
+  // Futuro: se permite.
+  const ok = await tool.handler({ user }, { restauranteId: "r1", fecha: futuro, hora: "21:00", comensales: 2 });
+  assert.ok(ok && ok.id, "una fecha futura sí se crea");
+});
+
+test("fechas: hoy con franja ya pasada también se bloquea", async () => {
+  const { getTool } = require("../src/modules/ai/tools");
+  const { hoyISO } = require("../src/config/constants");
+  const tool = getTool("createReservation");
+  const user = { uid: "u-cli", email: "cli@test.local", role: "cliente" };
+  const ahora = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Madrid",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date());
+  // 00:00 siempre está en pasado salvo justo a medianoche.
+  if (ahora !== "00:00") {
+    await assert.rejects(
+      () => tool.handler({ user }, { restauranteId: "r1", fecha: hoyISO(), hora: "00:00", comensales: 2 }),
+      (err) => err.code === "VALIDATION_ERROR",
+    );
+  }
 });
 
 test("degradación: si el provider cae siempre responde 200 con retryable", async () => {
