@@ -180,6 +180,43 @@ test("snapshot del prompt: hash de CONTEXT + GUARDRAILS", () => {
   assert.match(prompt, /PROTOCOLO ReAct/);
 });
 
+test("Idempotency-Key: no rompe cuando no hay needsConfirm (undefined en Firestore)", async () => {
+  geminiMock.setGeminiHandler(() => ({ text: "Hola, ¿qué buscas hoy?" }));
+
+  const res = await request(app)
+    .post(AGENT)
+    .set("Idempotency-Key", "11111111-2222-4333-8444-555555555555")
+    .send({ message: "hola" });
+
+  assert.equal(res.status, 200, "una Idempotency-Key nunca debe provocar 500");
+  assert.equal(res.body.needsConfirm, undefined);
+  assert.ok(res.body.reply);
+  // La clave no debe incluir undefined en ninguna forma (Firestore lo rechaza).
+  const raw = JSON.stringify(res.body);
+  assert.ok(!raw.includes("needsConfirm"), "no se serializan claves ausentes");
+});
+
+test("Idempotency-Key: un 500 cacheado nunca se vuelve a servir", async () => {
+  // Regresión: el middleware cacheaba tambien los 500, así que un fallo puntual
+  // se reproducía para siempre con la misma Idempotency-Key.
+  const { seed } = require("./helpers/mockFirebase");
+  seed("idempotencyKeys", "anonymous_llave-envenenada", {
+    status: 500,
+    body: { error: "INTERNAL_ERROR", message: "Error interno" },
+    createdAt: new Date(),
+  });
+  geminiMock.setGeminiHandler(() => ({ text: "respuesta buena" }));
+
+  const res = await request(app)
+    .post(AGENT)
+    .set("Idempotency-Key", "llave-envenenada")
+    .send({ message: "hola" });
+
+  assert.equal(res.status, 200, "debe ignorar el error cacheado y responder de verdad");
+  assert.equal(res.body.reply, "respuesta buena");
+  assert.equal(res.body.error, undefined);
+});
+
 test("degradación: si el provider cae siempre responde 200 con retryable", async () => {
   geminiMock.setGeminiHandler(() => {
     throw new Error("503 Service Unavailable");

@@ -31,6 +31,24 @@ function rateLimit(windowMs = 60000, max = 100) {
   };
 }
 
+// Firestore no admite `undefined` (ni NaN/Infinity). El body cacheado puede
+// traerlos, así que se limpian antes de guardar para no romper la respuesta.
+function firestoreSafe(value) {
+  if (value === undefined || value === null) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (Array.isArray(value)) return value.map(firestoreSafe);
+  if (value instanceof Date) return value;
+  if (typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (v === undefined) continue;
+      out[k] = firestoreSafe(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 async function idempotency(req, res, next) {
   const key = req.headers["idempotency-key"];
   if (!key) return next();
@@ -40,15 +58,32 @@ async function idempotency(req, res, next) {
     const doc = await db.collection("idempotencyKeys").doc(docId).get();
     if (doc.exists) {
       const cached = doc.data();
-      return res.status(cached.status).json(cached.body);
+      // Nunca re-servimos un error cacheado: solo successes (2xx).
+      if (cached.status >= 200 && cached.status < 300) {
+        return res.status(cached.status).json(cached.body);
+      }
+      await db.collection("idempotencyKeys").doc(docId).delete().catch(() => {});
     }
     const originalJson = res.json.bind(res);
     res.json = (body) => {
-      db.collection("idempotencyKeys").doc(docId).set({ status: res.statusCode, body, createdAt: new Date() });
+      const status = res.statusCode;
+      // Cachear es un extra: si falla, la respuesta al cliente debe salir igual.
+      // Ojo: set() puede lanzar de forma SINCRONA al validar, por eso try/catch.
+      if (status >= 200 && status < 300) {
+        try {
+          db.collection("idempotencyKeys")
+            .doc(docId)
+            .set({ status, body: firestoreSafe(body), createdAt: new Date() })
+            .catch((err) => logger.warn({ docId, error: err.message }, "idempotency cache failed"));
+        } catch (err) {
+          logger.warn({ docId, error: err.message }, "idempotency cache failed");
+        }
+      }
       return originalJson(body);
     };
     next();
-  } catch {
+  } catch (err) {
+    logger.warn({ docId, error: err.message }, "idempotency lookup failed");
     next();
   }
 }

@@ -18,14 +18,17 @@ router.post("/agent", optionalAuth, rateLimit(60000, 10), validate(agentSchema),
       requestId: req.id,
     });
     if (out.promptHash) res.setHeader("X-Prompt-Hash", out.promptHash);
-    res.json({
+    // Firestore rechaza `undefined` al guardar, y el middleware de idempotencia
+    // cachea este body. Solo incluimos las claves que tienen valor.
+    const payload = {
       reply: out.reply,
       actions: out.actions,
-      needsConfirm: out.needsConfirm,
       provider: out.provider,
       model: out.model,
-      retryable: out.retryable === true ? true : undefined,
-    });
+    };
+    if (out.needsConfirm) payload.needsConfirm = out.needsConfirm;
+    if (out.retryable === true) payload.retryable = true;
+    res.json(payload);
   } catch (err) {
     next(err);
   }
