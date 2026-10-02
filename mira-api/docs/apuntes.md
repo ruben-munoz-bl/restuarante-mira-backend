@@ -98,7 +98,7 @@ Una tool = una operación real. Cada una declara **qué rol puede usarla**, **si
 | Empresa | 44 | mis restaurantes, actualizar ficha, subir ticket, cambiar estado de reserva, promociones |
 | Admin | 60 | usuarios, facturación, métricas, señales de fraude, puntos manuales, rachas, aprobar negocios |
 
-**60 tools en total, 29 de ellas mutantes.** Cada rol ve un subconjunto: el modelo solo recibe las tools que le tocan.
+**60 tools en total, 29 de ellas modifican datos.** Cada rol ve un subconjunto: el modelo solo recibe las tools que le tocan.
 
 ### La regla de oro: la IA no toca la base de datos
 
@@ -147,7 +147,7 @@ Propiedades del `confirmId`:
 | Capa | Qué protege |
 |---|---|
 | **Herramientas por rol** | El modelo *solo ve* las tools que le tocan. Un cliente ni de sabe que existen las de admin. |
-| **Validación en 3 puntos** | Aunque el modelo se invente una tool, se comprueba rol → activación → mutación. |
+| **Validación en 3 puntos** | Aunque el modelo se invente una tool, se comprueba rol → activación → si modifica datos. |
 | **Confirmación en 2 pasos** | Ninguna acción destructiva sin un "sí" humano. |
 | **Sin credenciales** | El modelo nunca ve tokens, claves ni la `Authorization`. El servidor usa la sesión del usuario por dentro. |
 | **Reglas inyectadas** | Los guardrails tienen prioridad sobre cualquier instrucción del usuario (frente a prompt injection). |
@@ -257,7 +257,7 @@ Los dos últimos son los importantes: demuestran que **no es una caja negra**.
 | **System prompt** | Instrucciones fijas que recibe el modelo en cada llamada |
 | **Guardrails** | Reglas que el modelo no puede saltarse |
 | **Confirmación en 2 pasos** | Acción sensible = primero se pide permiso, luego se ejecuta |
-| **Mutante** | Tool que crea, modifica o borra datos |
+| **Modifica datos** | Tool que crea, modifica o borra información (crear una reserva, canjear puntos…). Requiere confirmación. |
 | **Idempotencia** | Reenviar la misma petición no duplica efectos |
 | **Degradación elegante** | Si algo falla, se responde igual con un aviso en vez de cortar |
 

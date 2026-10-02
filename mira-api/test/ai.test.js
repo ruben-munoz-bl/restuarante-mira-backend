@@ -14,7 +14,7 @@ const { seedBase, store, tokens } = mockFirebase;
 const AGENT = "/v1/ai/agent";
 // Snapshot del prompt (CONTEXT + GUARDRAILS). Si cambia un .md, este test falla a propósito:
 // revisa el cambio y actualiza la constante.
-const PROMPT_HASH_SNAPSHOT = "d3abcdb1ce8f4ffa";
+const PROMPT_HASH_SNAPSHOT = "932414bda41877aa";
 
 function post(body, token) {
   const req = request(app).post(AGENT);
@@ -95,7 +95,7 @@ test("guardrail: respuesta inventada sin tool se filtra (anti-invento)", async (
   assert.equal(res.body.actions.length, 0);
 });
 
-test("mutación: 2 pasos con confirmId, un solo uso y sin reserva fantasma", async () => {
+test("acción que modifica datos: 2 pasos con confirmId, un solo uso y sin reserva fantasma", async () => {
   let n = 0;
   geminiMock.setGeminiHandler(() => {
     n += 1;

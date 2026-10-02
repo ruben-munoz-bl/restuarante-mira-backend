@@ -37,7 +37,7 @@ Respuesta: cabecera `X-Prompt-Hash` (hash de la versión del prompt, para trazab
   "actions": [
     { "tool": "searchRestaurants", "args": { "cocina": "Italian", "ciudad": "Barcelona" }, "result": { "ok": true, "data": { } } }
   ],
-  "needsConfirm": {                      // SOLO si hay una acción mutante pendiente
+  "needsConfirm": {                      // SOLO si hay una acción que modifica datos pendiente
     "confirmId": "550e8400-e29b-...",
     "summary": "r1 · 2030-01-01 13:00 · 4 pax",
     "payload": { "tool": "createReservation", "args": { } }
@@ -56,9 +56,9 @@ Respuesta: cabecera `X-Prompt-Hash` (hash de la versión del prompt, para trazab
 - `needsConfirm` — **clave del flujo de 2 pasos**. Si aparece, NADA se ha ejecutado todavía.
 - `retryable` — solo aparece como `true` cuando el proveedor de IA falló (cuota o saturación). **El HTTP sigue siendo 200**: puedes reenviar el mismo `message` sin molestar al usuario.
 
-## Flujo de confirmación (acciones mutantes)
+## Flujo de confirmación (acciones que modifican datos)
 
-Crear/cancelar/canjear/reescribir son mutantes: siempre 2 pasos.
+Crear, cancelar, canjear o reescribir son acciones que modifican datos: siempre en 2 pasos.
 
 ```
 1) POST { message: "Mesa para 4 el 2030-01-01 a las 13:00 en r1" }   (con Bearer)
@@ -83,7 +83,7 @@ Todas consultan la API real a través de los services. El agente solo ve las too
 
 **Solo admin:** `listAllUsers`, `dashboardUsers`, `adminOverview`, `opsOverview`, `adminReservations`, `revenue`, `fraudFlags`, `addManualPoints`, `setRacha`, `deltaRacha`, `unclaimToday`, `pendingNegocios`, `approveNegocio`, `rejectNegocio`, `pendingContactos`, `resolveContacto`.
 
-Totales por rol: anónimo/cliente **33**, empresa **44**, admin **60**. De las 60, **29 son mutantes** y pasan por confirmación.
+Totales por rol: anónimo/cliente **33**, empresa **44**, admin **60**. De las 60, **29 modifican datos** y pasan por confirmación.
 
 ## Errores HTTP
 
