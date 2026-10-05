@@ -6,7 +6,10 @@ const envSchema = z.object({
   AI_PROVIDER: z.string().default("gemini"),
   AI_MODEL: z.string().default("gemini-3.5-flash-lite"),
   AI_FALLBACK_MODEL: z.string().default("gemini-3.5-flash"),
-  AI_MAX_TOKENS: z.coerce.number().default(350),
+  // Margen amplio: los modelos Gemini 3 razonan antes de responder y esos tokens
+// consumen el mismo presupuesto de salida (con 350 la respuesta se cortaba a
+// media frase).
+AI_MAX_TOKENS: z.coerce.number().default(2048),
   AI_TEMPERATURE: z.coerce.number().default(0.7),
 // Flag de tools: "all" = todas (por defecto). "" = solo las 7 core de Fase 1.
 // O lista separada por comas para activar solo tools concretas.

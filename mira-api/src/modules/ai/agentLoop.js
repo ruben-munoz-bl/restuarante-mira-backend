@@ -9,6 +9,71 @@ const DEADLINE_MS = 20000;
 const TOOL_BUDGET_MS = 7000;
 const MAX_RESULT_CHARS = 2000;
 
+// Nunca mostramos JSON crudo al usuario: extraemos los campos que interesan.
+function resumenLegible(data) {
+  if (data === null || data === undefined) return null;
+  if (typeof data !== "object") return String(data).slice(0, 120);
+  if (Array.isArray(data)) return resumenLista(data);
+  if (Array.isArray(data.items)) return resumenLista(data.items);
+  const partes = [];
+  for (const key of [
+    "nombre", "codigo", "estado", "saldo", "saldoPuntos", "puntos", "total",
+    "fecha", "hora", "comensales", "email", "restaurante", "pendientes", "count",
+  ]) {
+    const v = data[key];
+    if (v === null || v === undefined || v === "") continue;
+    if (typeof v === "object") {
+      // Un nivel de anidado: si es un objeto con nombre, lo usamos.
+      if (typeof v.nombre === "string" && v.nombre) {
+        partes.push(`${key}: ${v.nombre}`);
+        if (partes.length >= 4) break;
+      }
+      continue;
+    }
+    partes.push(`${key}: ${v}`);
+    if (partes.length >= 4) break;
+  }
+  return partes.length ? partes.join(" · ") : null;
+}
+
+function resumenLista(items) {
+  const nombres = items
+    .map((i) => (i && typeof i === "object" ? i.nombre : i))
+    .filter(Boolean)
+    .slice(0, 5);
+  if (!nombres.length) return null;
+  const total = items.length;
+  const lista = nombres.join(", ");
+  return total > nombres.length ? `${lista} (y ${total - nombres.length} más)` : lista;
+}
+
+// Red de seguridad: si el modelo devuelve JSON o texto cortado, no lo mostramos tal cual.
+function sanearReply(text) {
+  if (!text) return text;
+  const t = text.trim();
+  const pareceJson = (t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"));
+  if (pareceJson) {
+    let data = null;
+    try {
+      data = JSON.parse(t);
+    } catch {
+      data = null;
+    }
+    const resumen = resumenLegible(data);
+    return resumen
+      ? `Lo he consultado y esto es lo que hay: ${resumen}. ¿Quieres que te dé más detalle?`
+      : "Ya lo he consultado, pero no he conseguido resumirlo. Dime qué detalle quieres y te lo digo.";
+  }
+  return text;
+}
+
+function conCierreBrusco(text) {
+  if (!text) return false;
+  const t = text.trim();
+  if (t.length < 45) return false;
+  return !/[.!?)»"']$/.test(t);
+}
+
 function truncate(value) {
   let s;
   try {
@@ -134,7 +199,19 @@ async function runAgentLoop({ provider, system, history, message, user, onPendin
         reply = checkReply.fallbackReply();
         break;
       }
-      reply = text;
+      // Red de seguridad: si el modelo se queda sin presupuesto de salida, la
+      // respuesta llega cortada a media frase. Se pide una versión corta.
+      if (conCierreBrusco(text) && !retryUsed && Date.now() - startedAt < TOOL_BUDGET_MS) {
+        retryUsed = true;
+        logger.warn({ len: text.length }, "ai.reply.cortada");
+        messages.push({
+          role: "user",
+          content: "[SISTEMA] Tu respuesta se ha cortado a media frase. Vuelve a responder de forma más BREVE: 2-3 frases como máximo y cierra la frase.",
+        });
+        continue;
+      }
+      if (conCierreBrusco(text)) reply = `${text.trim()}…`;
+      else reply = text;
       break;
     }
 
@@ -227,8 +304,11 @@ async function runAgentLoop({ provider, system, history, message, user, onPendin
     if (pending) {
       reply = `Tengo preparada esta operación: ${pending.summary}. ¿Confirmas?`;
     } else if (lastData) {
-      // Se agotó el tiempo pero sí consultamos la API: mejor datos crudos que un "no pude".
-      reply = truncate(lastData.data);
+      // Se agotó el tiempo pero sí consultamos la API: resumen legible, NUNCA JSON crudo.
+      const resumen = resumenLegible(lastData.data);
+      reply = resumen
+        ? `Lo he consultado y esto es lo que hay: ${resumen}. ¿Quieres que te dé más detalle?`
+        : "Ya lo he consultado, pero no he conseguido resumirlo. Dime qué detalle quieres y te lo digo.";
     } else if (Date.now() <= deadline) {
       reply = "He alcanzado el límite de pasos sin terminar. ¿Puedes simplificar la petición?";
     } else {
@@ -236,7 +316,11 @@ async function runAgentLoop({ provider, system, history, message, user, onPendin
     }
   }
 
-  return { reply, actions, pending, model };
+  const limpio = sanearReply(reply);
+  if (limpio !== reply && reply) {
+    logger.warn({ tool: lastData && lastData.tool, reason: "respuesta no presentable" }, "ai.reply.sanitizada");
+  }
+  return { reply: limpio, actions, pending, model };
 }
 
-module.exports = { runAgentLoop, executeTool, withTimeout, truncate, MAX_ITER, DEADLINE_MS };
+module.exports = { runAgentLoop, executeTool, withTimeout, truncate, resumenLegible, sanearReply, conCierreBrusco, MAX_ITER, DEADLINE_MS };

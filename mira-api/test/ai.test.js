@@ -14,7 +14,7 @@ const { seedBase, store, tokens } = mockFirebase;
 const AGENT = "/v1/ai/agent";
 // Snapshot del prompt (CONTEXT + GUARDRAILS). Si cambia un .md, este test falla a propósito:
 // revisa el cambio y actualiza la constante.
-const PROMPT_HASH_SNAPSHOT = "932414bda41877aa";
+const PROMPT_HASH_SNAPSHOT = "e2185ae607d3ce4a";
 
 function post(body, token) {
   const req = request(app).post(AGENT);
@@ -277,6 +277,43 @@ test("fechas: hoy con franja ya pasada también se bloquea", async () => {
       (err) => err.code === "VALIDATION_ERROR",
     );
   }
+});
+
+test("nunca se muestra JSON crudo al usuario", async () => {
+  const { resumenLegible, sanearReply } = require("../src/modules/ai/agentLoop");
+
+  // 1. Sanitizar una respuesta que es JSON puro.
+  const json = JSON.stringify({
+    restaurante: { id: "r1", nombre: "Casa Lucio", stats: { totalReservas: 3 } },
+    finanzas: null,
+    proximasReservas: [],
+  });
+  const limpio = sanearReply(json);
+  assert.doesNotMatch(limpio, /[{}"[\]]/, "no debe quedar JSON en la respuesta");
+  assert.match(limpio, /Casa Lucio/);
+
+  // 2. Resumen de listas con items.
+  const resumen = resumenLegible({ items: [{ nombre: "A" }, { nombre: "B" }, { nombre: "C" }] });
+  assert.match(resumen, /A, B, C/);
+
+  // 3. Un texto normal NO se toca.
+  assert.equal(sanearReply("Hola, ¿qué buscas?"), "Hola, ¿qué buscas?");
+});
+
+test("si la tool responde y el modelo calla, se entrega un resumen legible", async () => {
+  // El modelo llama a la tool y luego no produce texto: el agente debe resumir,
+  // nunca reventar con el JSON crudo (regresión del fallback anterior).
+  let n = 0;
+  geminiMock.setGeminiHandler(() => {
+    n += 1;
+    if (n === 1) return { calls: [{ name: "countRestaurants" }] };
+    return { text: "" };
+  });
+
+  const res = await post({ message: "cuántos restaurantes hay" });
+  assert.equal(res.status, 200);
+  assert.doesNotMatch(res.body.reply, /[{}]/, "no debe filtrar JSON al usuario");
+  assert.ok(res.body.reply.length > 0);
 });
 
 test("degradación: si el provider cae siempre responde 200 con retryable", async () => {

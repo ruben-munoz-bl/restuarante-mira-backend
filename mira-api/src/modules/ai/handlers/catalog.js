@@ -84,18 +84,29 @@ module.exports = {
       : interactionsService.registrarVista(uid, restauranteId);
   },
 
-  myRestaurants: async (ctx, args) => {
+myRestaurants: async (ctx, args) => {
     const uid = requireUid(ctx);
     const currentId = (args || {}).currentId || null;
     const lista = await dashboardService.listMyRestaurants(uid, ctx.user.email || null, currentId);
-    return (Array.isArray(lista) ? lista : []).slice(0, MAX_ITEMS);
-  },
+    const out = (Array.isArray(lista) ? lista : []).slice(0, MAX_ITEMS);
+    if (out.length === 0) {
+      // Un admin que aprueba propuestas de otros no tiene restaurantes propios.
+      return {
+        restaurantes: out,
+        hint:
+          "Este usuario no tiene restaurantes propios asignados. Si es un admin que acaba de aprobar una propuesta, " +
+          "el restaurante pertenece al dueño de la propuesta: búscalo con searchRestaurants por nombre o pide su id. " +
+          "No digas que está activo si no lo has verificado.",
+      };
+    }
+    return out;
+    },
 
-  myRestaurant: async (ctx, args) => {
+    myRestaurant: async (ctx, args) => {
     const uid = requireUid(ctx);
     const id = (args || {}).id || null;
     return dashboardService.getMyRestaurant(uid, id);
-  },
+    },
 
   updateRestaurant: async (ctx, args) => {
     const uid = requireUid(ctx);

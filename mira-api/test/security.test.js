@@ -122,7 +122,7 @@ test("SEC empresa → GET /v1/dashboard/my-restaurant sin restaurante → 404 NO
     .set("Authorization", `Bearer ${tokens.empresa}`);
   assert.equal(res.status, 404, JSON.stringify(res.body));
   assert.equal(res.body.error, "NOT_FOUND");
-  assert.equal(res.body.message, "Restaurante no encontrado");
+  assert.match(res.body.message, /no tiene ningún restaurante asignado/);
 });
 
 /* ───────── Validación (zod) ───────── */

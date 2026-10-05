@@ -203,7 +203,16 @@ async function resolveRestaurantId(uid, restaurantIdOverride) {
   const userData = userDoc.exists ? userDoc.data() : {};
   if (userData.restaurantId) return userData.restaurantId;
   const snap = await db.collection("restaurants").where("uid", "==", uid).limit(1).get();
-  if (snap.empty) throw notFoundError();
+  if (snap.empty) {
+    // No es que el restaurante no exista: es que este usuario no tiene ninguno
+    // asignado. Un admin que aprueba propuestas ajenas entra por aquí.
+    const err = new Error(
+      "Este usuario no tiene ningún restaurante asignado. Si buscas uno concreto, pásalo por query (?restaurantId=) o usa /v1/restaurants/:id.",
+    );
+    err.status = 404;
+    err.code = "NOT_FOUND";
+    throw err;
+  }
   return snap.docs[0].id;
 }
 

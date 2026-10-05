@@ -68,13 +68,18 @@ function parseResult(res, model) {
 }
 
 async function generateOnce(genAI, model, system, contents, tools, signal) {
+  const generationConfig = {
+    maxOutputTokens: env.AI_MAX_TOKENS,
+    temperature: env.AI_TEMPERATURE,
+  };
+  // OJO: no se manda thinkingConfig. Gemini 3.5-flash-lite devuelve 400 si se
+  // envía thinkingBudget (incluso 0), así que se usa el razonamiento por defecto
+  // y se compensa con un presupuesto de salida amplio (AI_MAX_TOKENS).
+
   const instance = genAI.getGenerativeModel({
     model,
     systemInstruction: system,
-    generationConfig: {
-      maxOutputTokens: env.AI_MAX_TOKENS,
-      temperature: env.AI_TEMPERATURE,
-    },
+    generationConfig,
   });
 
   const payload = { contents };
