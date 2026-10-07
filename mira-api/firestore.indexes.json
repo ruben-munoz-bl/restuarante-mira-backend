@@ -160,42 +160,21 @@
       "collectionGroup": "logs",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "uid", "order": "ASCENDING" },
-        { "fieldPath": "ts", "order": "DESCENDING" }
+        { "fieldPath": "uids", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "desde", "order": "DESCENDING" }
       ]
     },
     {
       "collectionGroup": "logs",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "ruta", "order": "ASCENDING" },
-        { "fieldPath": "ts", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "logs",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "modulo", "order": "ASCENDING" },
-        { "fieldPath": "ts", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "logs",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "ts", "order": "DESCENDING" }
+        { "fieldPath": "modulos", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "desde", "order": "DESCENDING" }
       ]
     }
   ],
   "fieldOverrides": [
-    { "collectionGroup": "logs", "fieldPath": "userAgent", "indexes": [] },
-    { "collectionGroup": "logs", "fieldPath": "path", "indexes": [] },
-    { "collectionGroup": "logs", "fieldPath": "ipHash", "indexes": [] },
-    { "collectionGroup": "logs", "fieldPath": "queryKeys", "indexes": [] },
-    { "collectionGroup": "logs", "fieldPath": "requestId", "indexes": [] },
-    { "collectionGroup": "logs", "fieldPath": "origen", "indexes": [] },
+    { "collectionGroup": "logs", "fieldPath": "registros", "indexes": [] },
     { "collectionGroup": "logs", "fieldPath": "expiraEn", "ttl": true, "indexes": [] }
   ]
 }
