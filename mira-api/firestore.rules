@@ -143,5 +143,18 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow write: if false;
     }
+
+    // Auditoría: append-only desde la API (firebase-admin ignora estas reglas).
+    // Desde clientes solo lectura de admins; nadie escribe ni borra directamente,
+    // así nadie puede colar eventos fuente:'sim' ni alterar el historial.
+    match /auditoria/{id} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /auditoria_estado/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
   }
 }
