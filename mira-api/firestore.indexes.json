@@ -1,13 +1,6 @@
 {
   "indexes": [
-    {
-      "collectionGroup": "restaurants",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "rating_yelp", "order": "DESCENDING" },
-        { "fieldPath": "__name__", "order": "DESCENDING" }
-      ]
-    },
+    
     {
       "collectionGroup": "restaurants",
       "queryScope": "COLLECTION",
@@ -33,13 +26,6 @@
         { "fieldPath": "categorias", "arrayConfig": "CONTAINS" },
         { "fieldPath": "rating_yelp", "order": "DESCENDING" },
         { "fieldPath": "__name__", "order": "DESCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "restaurants",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
       ]
     },
     {
@@ -174,7 +160,6 @@
     }
   ],
   "fieldOverrides": [
-    { "collectionGroup": "logs", "fieldPath": "registros", "indexes": [] },
-    { "collectionGroup": "logs", "fieldPath": "expiraEn", "ttl": true, "indexes": [] }
+    { "collectionGroup": "logs", "fieldPath": "registros", "indexes": [] }
   ]
 }

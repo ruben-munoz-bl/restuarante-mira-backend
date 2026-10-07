@@ -11,7 +11,10 @@
  * - `uids` y `modulos` (arrays) permiten buscar con array-contains + `desde`.
  * - `registros` no se indexa (indexar arrays de mapas dispara las escrituras
  *   de índice); se filtra al leer el bloque.
- * - `expiraEn` para la política TTL de Firestore (borrado automático).
+ * - `expiraEn` queda listo para una política TTL (requiere plan Blaze; en el
+ *   gratuito los bloques no se borran solos).
+ *
+ * Desactivado por defecto: solo escribe con LOGS_ENABLED=true.
  * - No se guardan bodies, tokens ni valores de query; la IP va con hash.
  *
  * Protecciones para no saturar la BD:
@@ -43,8 +46,9 @@ let escribiendo = null;
 let pausadoHasta = 0;
 let cuota = { dia: "", docs: 0 };
 
+/** Apagado por defecto (la API funciona como antes). Para presentarlo: LOGS_ENABLED=true. */
 function activo() {
-  return process.env.LOGS_ENABLED !== "false";
+  return process.env.LOGS_ENABLED === "true";
 }
 
 function hashIp(ip) {

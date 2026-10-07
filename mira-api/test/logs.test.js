@@ -2,6 +2,7 @@
  * Trazabilidad: cada petición deja un registro en `logs`, con o sin sesión,
  * agrupado en bloques para no saturar Firestore.
  */
+process.env.LOGS_ENABLED = "true";
 process.env.LOGS_MAX_DOCS_DIA = "3";
 process.env.LOGS_POR_DOC = "4";
 
@@ -131,5 +132,16 @@ test("si Firestore falla, pausa la escritura y la API sigue respondiendo", async
     assert.equal(intentos, 1, "tras el error no vuelve a intentarlo durante la pausa");
   } finally {
     mockDb.collection = original;
+  }
+});
+
+test("apagado por defecto: sin LOGS_ENABLED=true no escribe nada", async () => {
+  process.env.LOGS_ENABLED = "";
+  try {
+    await request(app).get("/v1/restaurants");
+    await request(app).get("/v1/dashboard/users").set("Authorization", `Bearer ${tokens.admin}`);
+    assert.equal((await bloques()).length, 0);
+  } finally {
+    process.env.LOGS_ENABLED = "true";
   }
 });

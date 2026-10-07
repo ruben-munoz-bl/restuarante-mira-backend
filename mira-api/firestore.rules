@@ -5,7 +5,7 @@ service cloud.firestore {
     function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
     function isAdmin() {
       return isSignedIn()
-        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+        && get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.tipo == 'admin';
     }
     function isEmpresa() {
       return isSignedIn()

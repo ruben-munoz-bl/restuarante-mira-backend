@@ -42,7 +42,8 @@ const REACT_RULES = [
 
 function readIfExists(filePath) {
   try {
-    return fs.readFileSync(filePath, "utf8").trim();
+    // CRLF → LF: en Windows git convierte los .md a CRLF y el hash del prompt cambiaba.
+    return fs.readFileSync(filePath, "utf8").replace(/\r\n/g, "\n").trim();
   } catch {
     return "";
   }
