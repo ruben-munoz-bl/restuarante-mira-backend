@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
 const { requestId, requestLogger, errorHandler } = require("./middlewares/errorHandler");
+const { accessLog } = require("./middlewares/accessLog");
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
 app.use(express.json());
 app.use(requestId);
 app.use(requestLogger);
+app.use(accessLog);
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

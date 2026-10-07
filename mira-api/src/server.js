@@ -33,7 +33,10 @@ const server = app.listen(port, () => {
 
 function shutdown(signal) {
   logger.info({ signal }, "Shutting down");
-  server.close(() => process.exit(0));
+  server.close(() => {
+    // Guarda los logs que queden en memoria antes de salir.
+    require("./middlewares/accessLog").flushLogs().finally(() => process.exit(0));
+  });
   setTimeout(() => process.exit(1), 10000).unref();
 }
 

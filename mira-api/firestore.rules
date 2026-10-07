@@ -134,6 +134,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /logs/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     match /auditLog/{id} {
       allow read: if isAdmin();
       allow write: if false;
