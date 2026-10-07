@@ -41,6 +41,9 @@ AI_ENABLED_TOOLS: z.string().default("all"),
   AUTO_COMPLETE_HOURS: z.coerce.number().default(2),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(60000),
   RATE_LIMIT_MAX: z.coerce.number().default(100),
+  // Caché del catálogo de restaurantes en memoria (evita escanear los ~690 docs
+  // en cada búsqueda). Se invalida al escribir en la colección.
+  CATALOG_CACHE_TTL_MS: z.coerce.number().default(300000),
 });
 
 const refined = envSchema.refine(

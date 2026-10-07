@@ -1,7 +1,54 @@
 const { db } = require("../../middlewares/verifyFirebaseAuth");
 const { logger } = require("../../middlewares/errorHandler");
+const { env } = require("../../config/env");
 
 const TAMANO_PAGINA = 27;
+
+// ─── Caché de catálogo ──────────────────────────────────────────────────────
+// El catálogo se leía entero en cada búsqueda de texto, listado y contador
+// (~690 lecturas por petición). Se carga una vez y se sirve en memoria con TTL,
+// invalidándolo cuando se escribe. Evita que un buscador del frontend (o el
+// agente) agote la cuota gratuita de Firestore.
+const CACHE_TTL_MS = Number(env.CATALOG_CACHE_TTL_MS) || 5 * 60 * 1000;
+
+let cache = { at: 0, items: null, byId: null };
+let inflight = null;
+const stats = { cargas: 0, aciertos: 0, misses: 0 };
+
+async function catalogo() {
+  const ahora = Date.now();
+  if (cache.items && ahora - cache.at < CACHE_TTL_MS) {
+    stats.aciertos += 1;
+    return cache.items;
+  }
+  if (inflight) return inflight;
+  inflight = (async () => {
+    stats.misses += 1;
+    const snap = await db.collection("restaurants").get();
+    const items = snap.docs.map((doc) => mapearDoc(doc.id, doc.data()));
+    const byId = new Map(items.map((r) => [r.id, r]));
+    cache = { at: Date.now(), items, byId };
+    stats.cargas += 1;
+    logger.info({ total: items.length }, "restaurants cache cargada");
+    return items;
+  })().finally(() => {
+    inflight = null;
+  });
+  return inflight;
+}
+
+function invalidarCatalogo() {
+  cache = { at: 0, items: null, byId: null };
+}
+
+function estadisticasCache() {
+  return {
+    ...stats,
+    ttlMs: CACHE_TTL_MS,
+    cargadoEnMsAgo: cache.items ? Date.now() - cache.at : null,
+    tamano: cache.items ? cache.items.length : 0,
+  };
+}
 
 function mapearDoc(id, data) {
   return { id, ...data };
@@ -44,8 +91,7 @@ async function listarRestaurantes({ limit = TAMANO_PAGINA, all = false, cursor =
   const hayFiltroTexto = q != null && String(q).trim() !== "";
 
   if (all || Number(limit) === 0) {
-    const snap = await db.collection("restaurants").get();
-    let items = snap.docs.map((doc) => mapearDoc(doc.id, doc.data()));
+    let items = await catalogo();
     items = sortRatingDesc(items);
     if (ciudad) items = items.filter((r) => r.ciudad === ciudad);
     if (zona) items = items.filter((r) => r.zona_busqueda === zona);
@@ -54,10 +100,9 @@ async function listarRestaurantes({ limit = TAMANO_PAGINA, all = false, cursor =
     return { items, cursor: null, terminado: true };
   }
 
-  // Búsqueda sin all=1: filtra en todo el catálogo y pagina en memoria (q no se limita a una página).
+  // Búsqueda sin all=1: filtra sobre el catálogo cacheado (0 lecturas en Firestore).
   if (hayFiltroTexto) {
-    const snap = await db.collection("restaurants").get();
-    let items = snap.docs.map((doc) => mapearDoc(doc.id, doc.data()));
+    let items = await catalogo();
     items = sortRatingDesc(items);
     if (ciudad) items = items.filter((r) => r.ciudad === ciudad);
     if (zona) items = items.filter((r) => r.zona_busqueda === zona);
@@ -96,9 +141,9 @@ async function listarRestaurantes({ limit = TAMANO_PAGINA, all = false, cursor =
     };
   } catch (e) {
     if (!isIndexError(e)) throw e;
-    // Fallback: carga total, ordena en memoria y pagina con el cursor (misma semántica).
-    const snap = await db.collection("restaurants").get();
-    let items = snap.docs.map((doc) => mapearDoc(doc.id, doc.data()));
+    // Fallback: pagina sobre el catálogo cacheado (misma semántica, 0 lecturas).
+    logger.warn({ error: e.message }, "restaurants: falta índice, usando caché en memoria");
+    let items = await catalogo();
     items = sortRatingDesc(items);
     if (ciudad) items = items.filter((r) => r.ciudad === ciudad);
     if (zona) items = items.filter((r) => r.zona_busqueda === zona);
@@ -134,11 +179,17 @@ function filtrarPorTexto(items, q) {
 }
 
 async function contarRestaurantes() {
-  const snap = await db.collection("restaurants").count().get();
-  return snap.data().count;
+  // El total sale del catálogo cacheado: 0 lecturas en Firestore.
+  const items = await catalogo();
+  return items.length;
 }
 
 async function obtenerRestaurante(id) {
+  // Primero caché (0 lecturas); si no está, una sola lectura al doc.
+  if (cache.byId && cache.byId.has(id)) {
+    stats.aciertos += 1;
+    return cache.byId.get(id);
+  }
   const doc = await db.collection("restaurants").doc(id).get();
   if (!doc.exists) {
     const err = new Error("Restaurante no encontrado");
@@ -146,17 +197,19 @@ async function obtenerRestaurante(id) {
     err.code = "NOT_FOUND";
     throw err;
   }
-  return mapearDoc(doc.id, doc.data());
+  const item = mapearDoc(doc.id, doc.data());
+  if (cache.byId) cache.byId.set(id, item);
+  return item;
 }
 
 async function obtenerPorUid(uid) {
-  const snap = await db.collection("restaurants").where("uid", "==", uid).get();
-  return snap.docs.map((doc) => mapearDoc(doc.id, doc.data()));
+  const items = await catalogo();
+  return items.filter((r) => r.uid === uid);
 }
 
 async function obtenerPorEmail(email) {
-  const snap = await db.collection("restaurants").where("email", "==", email).get();
-  return snap.docs.map((doc) => mapearDoc(doc.id, doc.data()));
+  const items = await catalogo();
+  return items.filter((r) => r.email === email);
 }
 
 async function actualizarRestaurante(restaurantId, uid, data) {
@@ -184,6 +237,7 @@ async function actualizarRestaurante(restaurantId, uid, data) {
   update.updatedAt = new Date();
 
   await db.collection("restaurants").doc(restaurantId).update(update);
+  invalidarCatalogo();
   logger.info({ restaurantId, uid }, "Restaurant updated");
   return { updated: true };
 }
@@ -195,5 +249,7 @@ module.exports = {
   obtenerPorUid,
   obtenerPorEmail,
   actualizarRestaurante,
+  invalidarCatalogo,
+  estadisticasCache,
   TAMANO_PAGINA,
 };

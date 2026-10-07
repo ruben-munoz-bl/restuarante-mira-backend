@@ -34,6 +34,11 @@ router.get("/count", optionalAuth, async (req, res, next) => {
   }
 });
 
+// Diagnóstico de la caché del catálogo: cuántas cargas reales a Firestore se han hecho.
+router.get("/cache/stats", optionalAuth, (req, res) => {
+  res.json({ cache: restaurantService.estadisticasCache() });
+});
+
 router.get("/:id", optionalAuth, async (req, res, next) => {
   try {
     const restaurante = await restaurantService.obtenerRestaurante(req.params.id);

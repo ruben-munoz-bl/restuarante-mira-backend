@@ -316,6 +316,86 @@ test("si la tool responde y el modelo calla, se entrega un resumen legible", asy
   assert.ok(res.body.reply.length > 0);
 });
 
+test("caché de catálogo: las búsquedas repetidas no vuelven a Firestore", () => {
+  const restaurantService = require("../src/modules/restaurants/service");
+  const { seed } = require("./helpers/mockFirebase");
+
+  // Invalida para partir de cero y sembrar datos propios.
+  restaurantService.invalidarCatalogo();
+  seed("restaurants", "r-cache", { nombre: "Pizzeria Cache", categorias: ["Pizza"], ciudad: "Barcelona", rating_yelp: 4.5 });
+  seed("restaurants", "r-cache2", { nombre: "Sushi Cache", categorias: ["Japanese"], ciudad: "Tarragona", rating_yelp: 4.9 });
+
+  const antes = restaurantService.estadisticasCache();
+
+  // 1ª búsqueda: carga la caché (1 lectura a Firestore).
+  return restaurantService.listarRestaurantes({ q: "cache" })
+    .then((r) => {
+      assert.ok(r.items.length >= 2, "debe encontrar los restaurantes sembrados");
+      const tras1 = restaurantService.estadisticasCache();
+      assert.equal(tras1.cargas, antes.cargas + 1, "la primera búsqueda carga el catálogo una vez");
+
+      // 10 búsquedas más con y sin filtros: NINGUNA debe volver a Firestore.
+      return Promise.all([
+        restaurantService.listarRestaurantes({ q: "cache" }),
+        restaurantService.listarRestaurantes({ q: "pizza" }),
+        restaurantService.listarRestaurantes({ all: true }),
+        restaurantService.listarRestaurantes({ ciudad: "Barcelona", limit: 27 }),
+        restaurantService.contarRestaurantes(),
+        restaurantService.obtenerRestaurante("r-cache"),
+        restaurantService.obtenerPorUid("u-emp"),
+        restaurantService.listarRestaurantes({ q: "sushi" }),
+        restaurantService.listarRestaurantes({ q: "cache" }),
+        restaurantService.contarRestaurantes(),
+      ]).then(() => {
+        const final = restaurantService.estadisticasCache();
+        assert.equal(
+          final.cargas,
+          tras1.cargas,
+          "con la caché caliente no debe haber ninguna carga nueva a Firestore",
+        );
+        assert.ok(final.aciertos > tras1.aciertos, "debe haber aciertos de caché");
+      });
+    })
+    .finally(() => restaurantService.invalidarCatalogo());
+});
+
+test("caché de catálogo: el contador y la ficha salen de memoria", () => {
+  const restaurantService = require("../src/modules/restaurants/service");
+  restaurantService.invalidarCatalogo();
+  return restaurantService.contarRestaurantes()
+    .then((total) => {
+      assert.ok(total > 0);
+      const antes = restaurantService.estadisticasCache().aciertos;
+      return restaurantService.contarRestaurantes().then((total2) => {
+        assert.equal(total2, total, "el total debe ser estable");
+        assert.ok(restaurantService.estadisticasCache().aciertos > antes, "el segundo count debe salir de caché");
+      });
+    })
+    .finally(() => restaurantService.invalidarCatalogo());
+});
+
+test("caché de catálogo: se invalida al actualizar un restaurante", () => {
+  const restaurantService = require("../src/modules/restaurants/service");
+  const { seed, store } = require("./helpers/mockFirebase");
+  restaurantService.invalidarCatalogo();
+  seed("restaurants", "r-upd", { nombre: "Nombre Viejo", uid: "u-emp", rating_yelp: 4 });
+
+  return restaurantService.listarRestaurantes({ all: true })
+    .then((r) => {
+      assert.ok(r.items.some((i) => i.id === "r-upd" && i.nombre === "Nombre Viejo"));
+      return restaurantService.actualizarRestaurante("r-upd", "u-emp", { nombre: "Nombre Nuevo" });
+    })
+    .then(() => {
+      // La escritura debe invalidar: la siguiente lectura ve el nombre nuevo.
+      return restaurantService.listarRestaurantes({ all: true });
+    })
+    .then((r) => {
+      assert.ok(r.items.some((i) => i.id === "r-upd" && i.nombre === "Nombre Nuevo"), "debe verse el cambio");
+      assert.equal(store.get("restaurants").get("r-upd").nombre, "Nombre Nuevo");
+    })
+    .finally(() => restaurantService.invalidarCatalogo());
+});
+
 test("degradación: si el provider cae siempre responde 200 con retryable", async () => {
   geminiMock.setGeminiHandler(() => {
     throw new Error("503 Service Unavailable");

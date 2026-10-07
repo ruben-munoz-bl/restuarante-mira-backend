@@ -585,6 +585,7 @@ async function eliminarRestaurante(restaurantId) {
     throw err;
   }
   await ref.delete();
+  require("../restaurants/service").invalidarCatalogo();
   logger.info({ restaurantId }, "Restaurant deleted");
   return { deleted: true, id: restaurantId };
 }

@@ -1,5 +1,6 @@
 const { db } = require("../../middlewares/verifyFirebaseAuth");
 const { logger } = require("../../middlewares/errorHandler");
+const restaurantsService = require("../restaurants/service");
 const { SLOTS, PUNTOS_RESERVA_BASE, MULTIPLICADOR_RACHA } = require("../../config/constants");
 
 function limitePorResenas(totalResenasYelp) {
@@ -33,9 +34,9 @@ function notFoundError() {
 }
 
 async function getDisponibilidad(restaurantId, fecha, hora) {
-  const restSnap = await db.collection("restaurants").doc(restaurantId).get();
-  if (!restSnap.exists) throw notFoundError();
-  const restaurante = restSnap.data();
+  // La ficha del restaurante sale de la caché de catálogo (0 lecturas); el
+  // aforo sí se lee de Firestore porque cambia con cada reserva.
+  const restaurante = await restaurantsService.obtenerRestaurante(restaurantId);
   const limite = limiteDelLocal(restaurante);
   if (!fecha || !hora) return { limite, ocupadas: 0, libres: limite };
   const snap = await db.collection("aforo").doc(aforoId(restaurantId, fecha, hora)).get();
