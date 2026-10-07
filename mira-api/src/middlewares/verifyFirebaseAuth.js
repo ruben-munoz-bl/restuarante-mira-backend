@@ -72,7 +72,16 @@ function optionalAuth(req, res, next) {
 function authorize(...roles) {
   return (req, res, next) => {
     if (!req.user) return res.status(401).json({ error: "UNAUTHORIZED" });
-    if (!roles.includes(req.user.role)) return res.status(403).json({ error: "FORBIDDEN", message: "No tienes permiso" });
+    if (!roles.includes(req.user.role)) {
+      // Un intento contra una ruta de admin queda en la auditoría (require tardío: evita el ciclo de módulos).
+      if (roles.length === 1 && roles[0] === "admin") {
+        require("../modules/auditoria/service").registrarServidor(req, {
+          tipo: "admin_acceso_denegado", origen: "api", ruta: `${req.baseUrl || ""}${req.path}`.slice(0, 200),
+          accion: req.method, resultado: "error", codigoError: "FORBIDDEN",
+        });
+      }
+      return res.status(403).json({ error: "FORBIDDEN", message: "No tienes permiso" });
+    }
     next();
   };
 }

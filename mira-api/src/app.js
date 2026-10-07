@@ -53,6 +53,7 @@ app.use("/v1/tickets", require("./modules/tickets/routes"));
 app.use("/v1/invite", require("./modules/invitations/routes"));
 app.use("/v1/promotions", require("./modules/promotions/routes"));
 app.use("/v1/interactions", require("./modules/interactions/routes"));
+app.use("/v1/auditoria", require("./modules/auditoria/routes"));
 app.use("/v1/reviews", require("./modules/reviews/routes"));
 app.use("/v1/admin", require("./modules/admin/routes"));
 app.use("/v1/dashboard", require("./modules/dashboard/router"));

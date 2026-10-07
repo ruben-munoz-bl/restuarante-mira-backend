@@ -399,3 +399,48 @@ Códigos habituales: `400` validación · `401` auth · `403` rol · `404` no ex
 | Firebase Auth (`authApi.js`) | login/registro/ID token — **no** Firestore |
 
 Build del frontend: `npm run build` (Vite) — sin llamadas directas a Firestore en los servicios de datos.
+
+
+---
+
+## Auditoría y simulador de 100 usuarios
+
+La colección `auditoria` guarda un historial **append-only** de eventos (web, panel y API). Código en
+`mira-api/src/modules/auditoria/` y endpoints en `/v1/auditoria` (documentados en `documentacion.md` del frontend).
+
+### Simular
+
+Desde el panel: **Auditoría → Simulación → «Simular 100 usuarios»** (progreso en vivo).
+Desde la terminal (necesita `yelp-connection/serviceAccountKey.json`, que no se sube al repo):
+
+```bash
+cd yelp-connection
+npm run simular-auditoria            # 100 usuarios, últimos 30 días
+node simular-auditoria.js 200 60     # 200 usuarios, últimos 60 días
+```
+
+- Cada ejecución genera ~1.900 eventos por cada 100 usuarios (1-3 sesiones por usuario y 3 admins con acciones y `cambios`).
+- Fechas retroactivas en los últimos N días, con picos de comida (13-15 h) y cena (20-22 h) y curva de crecimiento.
+- Script y botón usan el mismo generador y validador (`simulador.js`), así producen exactamente lo mismo.
+- Escritura en lotes de 500 con 3 reintentos. Al terminar imprime eventos, sesiones, usuarios, días y semanas cubiertos y el reparto real/sim.
+
+### Limpiar
+
+```bash
+npm run borrar-simulacion            # todas las simulaciones
+node borrar-simulacion.js <simRunId> # solo una ejecución
+```
+
+Borra **solo** documentos con `fuente: 'sim'`; los reales no se tocan nunca.
+
+### Distinguir simulado de real
+
+- `fuente: 'sim'` + `simRunId` en cada evento simulado; `fuente: 'real'` en todo lo que entra por la API
+  (el servidor ignora la `fuente` que mande el cliente).
+- Los usuarios simulados tienen uid `sim-u-NNN` y los admins `sim-admin-N`.
+- En el panel, el selector «Origen» y la leyenda «X reales · Y simulados».
+
+### Coste en Firestore (plan gratuito)
+
+- Lecturas: la API carga la colección una vez y luego solo pide los documentos nuevos (`insertadoEn`), como mucho cada 8 s.
+- Escrituras: 1 por evento real (tope `AUDITORIA_MAX_DIA`, 8.000 por defecto) y ~1.900 por simulación de 100 usuarios.

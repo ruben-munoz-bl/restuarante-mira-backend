@@ -1,165 +1,353 @@
 {
   "indexes": [
-    
     {
       "collectionGroup": "restaurants",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "ciudad", "order": "ASCENDING" },
-        { "fieldPath": "rating_yelp", "order": "DESCENDING" },
-        { "fieldPath": "__name__", "order": "DESCENDING" }
+        {
+          "fieldPath": "ciudad",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "rating_yelp",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "restaurants",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "zona_busqueda", "order": "ASCENDING" },
-        { "fieldPath": "rating_yelp", "order": "DESCENDING" },
-        { "fieldPath": "__name__", "order": "DESCENDING" }
+        {
+          "fieldPath": "zona_busqueda",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "rating_yelp",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "restaurants",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "categorias", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "rating_yelp", "order": "DESCENDING" },
-        { "fieldPath": "__name__", "order": "DESCENDING" }
+        {
+          "fieldPath": "categorias",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "rating_yelp",
+          "order": "DESCENDING"
+        },
+        {
+          "fieldPath": "__name__",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "reservas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "uid", "order": "ASCENDING" },
-        { "fieldPath": "fecha", "order": "DESCENDING" }
+        {
+          "fieldPath": "uid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "fecha",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "reservas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "uid", "order": "ASCENDING" },
-        { "fieldPath": "estado", "order": "ASCENDING" },
-        { "fieldPath": "fecha", "order": "DESCENDING" }
+        {
+          "fieldPath": "uid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "estado",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "fecha",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "reservas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "restaurantId", "order": "ASCENDING" },
-        { "fieldPath": "fecha", "order": "DESCENDING" }
+        {
+          "fieldPath": "restaurantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "fecha",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "reservas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "restauranteId", "order": "ASCENDING" },
-        { "fieldPath": "fecha", "order": "DESCENDING" }
+        {
+          "fieldPath": "restauranteId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "fecha",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "reservas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "restaurantId", "order": "ASCENDING" },
-        { "fieldPath": "fecha", "order": "ASCENDING" }
+        {
+          "fieldPath": "restaurantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "fecha",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "reservas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "restaurantId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "restaurantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "puntos_movimientos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "uid", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "uid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "puntos_movimientos",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "uid", "order": "ASCENDING" },
-        { "fieldPath": "tipo", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "uid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "tipo",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "invitaciones",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "creadorUid", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "creadorUid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "tickets",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "uid", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "uid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "tickets",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "restaurantId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "restaurantId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "promociones",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "estado", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "estado",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "resenas",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "restauranteId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "restauranteId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "mensajes",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "uid", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "uid",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "logs",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "uids", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "desde", "order": "DESCENDING" }
+        {
+          "fieldPath": "uids",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "desde",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "logs",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "modulos", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "desde", "order": "DESCENDING" }
+        {
+          "fieldPath": "modulos",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "desde",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "auditoria",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "tipo",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "ts",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "auditoria",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "fuente",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "ts",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "auditoria",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "fuente",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "simRunId",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "auditoria",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "entidadTipo",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "entidadId",
+          "order": "ASCENDING"
+        }
       ]
     }
   ],
   "fieldOverrides": [
-    { "collectionGroup": "logs", "fieldPath": "registros", "indexes": [] }
+    {
+      "collectionGroup": "logs",
+      "fieldPath": "registros",
+      "indexes": []
+    }
   ]
 }

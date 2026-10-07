@@ -1,20 +1,16 @@
-const { db } = require("../../middlewares/verifyFirebaseAuth");
-const { logger } = require("../../middlewares/errorHandler");
+/**
+ * Compatibilidad: logAudit() escribía en `auditLog`. Ahora delega en el store
+ * único de auditoría (`auditoria`) para no tener dos historiales paralelos.
+ */
+const { registrarServidor } = require("../auditoria/service");
 
-async function logAudit({ actorUid, accion, entidad, entidadId, diff, ip }) {
-  try {
-    await db.collection("auditLog").add({
-      actorUid: actorUid || "system",
-      accion,
-      entidad,
-      entidadId,
-      diff: diff || {},
-      ip: ip || null,
-      createdAt: new Date(),
-    });
-  } catch (err) {
-    logger.error({ err, accion, entidad, entidadId }, "Audit log failed");
-  }
+async function logAudit({ actorUid, accion, entidad, entidadId, diff }) {
+  const cambios = diff && typeof diff === "object"
+    ? Object.entries(diff).map(([campo, v]) => ({ campo, antes: v?.antes ?? null, despues: v?.despues ?? v ?? null }))
+    : null;
+  await registrarServidor(actorUid ? { user: { uid: actorUid }, headers: {} } : null, {
+    tipo: "interaccion", origen: "api", accion, entidadTipo: entidad, entidadId, cambios,
+  });
 }
 
 module.exports = { logAudit };
