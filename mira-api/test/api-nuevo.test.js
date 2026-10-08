@@ -150,6 +150,55 @@ test("GET /v1/points/discounts lista el catálogo", async () => {
 
 /* ───────── Dashboard del restaurante ───────── */
 
+test("POST /v1/points/redeem acepta puntos, descuentoId y string numérico", async () => {
+  // Regresión: el frontend mandaba {descuentoId} a /redeem y recibía
+  // VALIDATION_ERROR ("puntos Required"). Ahora ambas formas valen.
+  const conSaldo = (saldo) => seed("usuarios", "u-cli", { uid: "u-cli", tipo: "cliente", saldoPuntos: saldo, totalCanjeado: 0 });
+
+  // 1) Formato clásico: puntos como número
+  conSaldo(5000);
+  let res = await request(app).post("/v1/points/redeem").set("Authorization", `Bearer ${tokens.cliente}`).send({ puntos: 500 });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(res.body.nuevoSaldo, 4500);
+  assert.equal(res.body.canjeadoComo, "puntos");
+
+  // 2) Formato descuento (id como string) → genera cupón
+  conSaldo(5000);
+  res = await request(app).post("/v1/points/redeem").set("Authorization", `Bearer ${tokens.cliente}`).send({ descuentoId: "5" });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(res.body.nuevoSaldo, 4500);
+  assert.ok(res.body.cupon.codigo.startsWith("MIRA-"));
+  assert.equal(res.body.canjeadoComo, "descuento");
+
+  // 3) Puntos como texto ("500") → típico de un input de formulario
+  conSaldo(5000);
+  res = await request(app).post("/v1/points/redeem").set("Authorization", `Bearer ${tokens.cliente}`).send({ puntos: "500" });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(res.body.nuevoSaldo, 4500);
+
+  // 4) Importe con símbolo y número sueltos
+  conSaldo(5000);
+  res = await request(app).post("/v1/points/redeem").set("Authorization", `Bearer ${tokens.cliente}`).send({ descuentoId: "5 €" });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+
+  conSaldo(5000);
+  res = await request(app).post("/v1/points/redeem").set("Authorization", `Bearer ${tokens.cliente}`).send({ descuentoId: 10 });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+});
+
+test("POST /v1/points/redeem sin puntos ni descuento → error claro", async () => {
+  const res = await request(app).post("/v1/points/redeem").set("Authorization", `Bearer ${tokens.cliente}`).send({});
+  assert.equal(res.status, 400);
+  assert.equal(res.body.error, "VALIDATION_ERROR");
+});
+
+test("POST /v1/points/redeem con descuento inexistente → 400 con mensaje", async () => {
+  seed("usuarios", "u-cli", { uid: "u-cli", tipo: "cliente", saldoPuntos: 5000 });
+  const res = await request(app).post("/v1/points/redeem").set("Authorization", `Bearer ${tokens.cliente}`).send({ descuentoId: "999" });
+  assert.equal(res.status, 400);
+  assert.match(res.body.message, /descuento no existe/i);
+});
+
 test("dashboard: my-restaurant devuelve el restaurante completo cuando SÍ tiene", async () => {
   seed("restaurants", "r-mio", {
     nombre: "Mi Restaurante", uid: "u-emp", email: "emp@test.local", ciudad: "Barcelona",

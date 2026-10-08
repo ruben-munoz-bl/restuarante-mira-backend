@@ -39,13 +39,39 @@ router.get("/ledger", verifyFirebaseAuth, async (req, res, next) => {
   }
 });
 
-const redeemSchema = z.object({ puntos: z.number().int().positive() });
+// Acepta varias formas porque conviven dos conceptos:
+//  - "quiero gastar N puntos"            -> { puntos: 500 }
+//  - "quiero el descuento de 5 €"       -> { descuentoId: "5" }  (id o euros)
+//  - número como texto                   -> { puntos: "500" }     (típico de un input)
+const redeemSchema = z
+  .object({
+    puntos: z.coerce.number().int().positive().optional(),
+    descuentoId: z.union([z.coerce.number().positive(), z.coerce.number().int().positive(), z.string().min(1)]).optional(),
+    restauranteId: z.string().min(1).optional().nullable(),
+  })
+  .refine((d) => d.puntos !== undefined || d.descuentoId !== undefined, {
+    message: "Indica 'puntos' (número) o 'descuentoId' (5, 10 o 20)",
+  });
+
 router.post("/redeem", verifyFirebaseAuth, validate(redeemSchema), async (req, res, next) => {
   try {
-    const result = await pointsService.redeem(req.user.uid, req.validated.puntos);
-    res.status(201).json(result);
+    const { puntos, descuentoId, restauranteId } = req.validated;
+
+    // Si viene descuentoId, se traduce a cupón (mismo resultado que /discount/claim).
+    if (puntos === undefined) {
+      const resultado = await pointsService.canjearDescuento(req.user.uid, descuentoId, restauranteId || null);
+      return res.status(201).json({ ...resultado, canjeadoComo: "descuento" });
+    }
+
+    const result = await pointsService.redeem(req.user.uid, puntos);
+    res.status(201).json({ ...result, canjeadoComo: "puntos" });
   } catch (err) {
-    if (err.message.includes("insuficiente")) return res.status(400).json({ error: "INSUFFICIENT", message: err.message });
+    if (err.code === "INSUFFICIENT" || err.message.includes("insuficiente")) {
+      return res.status(400).json({ error: "INSUFFICIENT", message: err.message });
+    }
+    if (err.code === "VALIDATION_ERROR") {
+      return res.status(400).json({ error: "VALIDATION_ERROR", message: err.message });
+    }
     next(err);
   }
 });

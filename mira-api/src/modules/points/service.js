@@ -217,8 +217,21 @@ function listarDescuentos() {
   return DESCUENTOS_DISPONIBLES.map((d) => ({ ...d, disponibles: true }));
 }
 
+/**
+ * Busca un descuento de forma tolerante: acepta el id ("5"), el importe
+ * ("5"), y el importe con símbolo ("5 €", "5€") o su equivalente numérico,
+ * porque cada pantalla del frontend lo llama de una manera.
+ */
 function buscarDescuento(id) {
-  return DESCUENTOS_DISPONIBLES.find((d) => d.id === String(id)) || null;
+  if (id === null || id === undefined) return null;
+  const bruto = String(id).trim();
+  if (!bruto) return null;
+  const clave = bruto.replace(/\s*(€|eur|euros?)\s*/gi, "").trim();
+  return (
+    DESCUENTOS_DISPONIBLES.find((d) => d.id === clave) ||
+    DESCUENTOS_DISPONIBLES.find((d) => String(d.euros) === clave) ||
+    null
+  );
 }
 
 /**

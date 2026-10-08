@@ -6,6 +6,39 @@ El más importante: **la base de datos gratuita se nos agotó** y hemos tenido q
 
 ---
 
+## 0. TL;DR — qué hay que hacer hoy
+
+| Prioridad | Cambio | Esfuerzo |
+|---|---|---|
+| 🔴 **P0** | El mapa pasa a `GET /v1/restaurants/mapa` | Cambiar 1 línea |
+| 🟡 P1 | Debounce en el buscador (450 ms, mínimo 3 letras) | 10 min |
+| 🟢 P2 | Revisar que nada sigue usando `?all=1` | 15 min |
+| 🟢 P2 | (Opcional) Integrar descuentos | Siguiente sprint |
+
+**Nada de esto rompe nada.** Los endpoints antiguos siguen funcionando; es cambiar para que no nos reventemos la base de datos.
+
+---
+
+## 0.bis. Cuánto cuesta cada endpoint (para decidir sin preguntar)
+
+Medido con los 700 restaurantes reales:
+
+| Endpoint | Tamaño | Lecturas a la BD | Veredicto |
+|---|---|---|---|
+| `GET /v1/restaurants?all=1` | **1,25 MB** | 0 (memoria) | 🔴 pesado, evítalo |
+| `GET /v1/restaurants/mapa` | **198 KB** | 0 (memoria) | 🟢 **el que quieres** |
+| `GET /v1/restaurants/mapa?ciudad=X` | ~60 KB | 0 | 🟢 ideal por zonas |
+| `GET /v1/restaurants?q=...` | ~50 KB | 0 | 🟢 (ya sale de memoria) |
+| `GET /v1/restaurants` (página) | ~40 KB | 0 | 🟢 |
+| `GET /v1/restaurants/count` | 0 | 0 | 🟢 |
+| `GET /v1/restaurants/:id` | ~2 KB | 0 | 🟢 |
+| `GET /v1/points/balance` | ~1 KB | 1 | 🟢 normal |
+| `GET /v1/reservations/availability` | ~0,2 KB | 1 | 🟢 |
+
+**Regla fácil**: todo lo que empiece por `/v1/restaurants` ya no lee de la base de datos (está en memoria). Lo único que hay que vigilar es **el peso de la respuesta**: por eso el mapa usa `/mapa`.
+
+---
+
 ## 1. ⚠️ CAMBIO PRINCIPAL: el mapa debe usar el endpoint nuevo
 
 ### Qué pasa
@@ -99,6 +132,32 @@ Errores posibles:
 | `NOT_FOUND` (404) | Usuario no encontrado |
 
 **Si la UI que teníais esperaba otro formato**, decidme y lo adapto (nombre del campo, si el cupón se devuelve plano, etc.).
+
+### 3.bis. Arreglado: `POST /v1/points/redeem` ya no da `VALIDATION_ERROR`
+
+Nos habéis reportado un `VALIDATION_ERROR` al reclamar puntos. El culpable: **`/redeem` exigía `{puntos: número}` y el frontend mandaba `{descuentoId}`**.
+
+Ya está arreglado. **Ahora `/redeem` entiende las dos cosas** (y de paso admite números como texto, que es lo que pasa con un `<input>`):
+
+```jsx
+// Las tres formas ahora valen (HTTP 201):
+await redeem({ puntos: 500 });              // gastas 500 puntos
+await redeem({ puntos: "500" });            // mismo, venía de un input
+await redeem({ descuentoId: "5" });         // cupón de 5 € (500 puntos)
+await redeem({ descuentoId: 10 });           // id como número
+await redeem({ descuentoId: "5 €" });       // con símbolo
+```
+
+La respuesta indica qué pasó:
+```json
+{ "nuevoSaldo": 4500, "canjeadoComo": "puntos" }               // canje simple
+{ "nuevoSaldo": 4500, "canjeadoComo": "descuento",
+  "cupon": { "codigo": "MIRA-A3F9K2", "euros": 5 } }           // genera cupón
+```
+
+**Podéis dejar la UI como está**: funcione cual sea el formato que mandéis. Pero si queréis Simplificar, lo ideal sería que uséis siempre `/points/discount/claim` para descuentos (semántica clara) y `/redeem` solo para gastar puntos.
+
+Si mandáis un body vacío o un descuento inexistente, seguirá dando `400`, pero ahora con un mensaje legible: *"Ese descuento no existe"*.
 
 ---
 
