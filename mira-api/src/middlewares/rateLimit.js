@@ -2,6 +2,39 @@ const { db } = require("./verifyFirebaseAuth");
 const { logger } = require("./errorHandler");
 
 const rateLimitStore = new Map();
+// La ventana caduca: si nadie vuelve a tocar una clave, sus timestamps se
+// pueden tirar. Sin esta purga cada IP nueva dejaba una entrada para siempre
+// y el Map crecia sin limite (la instancia de Render tiene solo 512 MB).
+const MAX_CLAVES = 20000;
+const MAX_VENTANA_MS = 300000;
+const SWEEP_MS = 5 * 60 * 1000;
+
+function purgar() {
+  const ahora = Date.now();
+  for (const [key, hits] of rateLimitStore) {
+    const vivos = hits.filter((t) => t > ahora - MAX_VENTANA_MS);
+    if (vivos.length === 0) rateLimitStore.delete(key);
+    else if (vivos.length !== hits.length) rateLimitStore.set(key, vivos);
+  }
+  if (rateLimitStore.size > MAX_CLAVES) {
+    const sobra = rateLimitStore.size - MAX_CLAVES;
+    let i = 0;
+    for (const key of rateLimitStore.keys()) {
+      if (i++ >= sobra) break;
+      rateLimitStore.delete(key);
+    }
+    logger.warn({ eliminadas: sobra, quedan: rateLimitStore.size }, "rateLimit: Map recortado por tamaño");
+  }
+}
+
+const temporizadorPurgar = setInterval(() => {
+  try {
+    purgar();
+  } catch (err) {
+    logger.warn({ error: err.message }, "rateLimit: fallo al purgar");
+  }
+}, SWEEP_MS);
+temporizadorPurgar.unref();
 
 function rateLimitKey(req) {
   const route = `${req.baseUrl || ""}${req.path}`;
@@ -17,6 +50,7 @@ function rateLimit(windowMs = 60000, max = 100) {
     const key = rateLimitKey(req);
     const now = Date.now();
     const windowStart = now - windowMs;
+    if (rateLimitStore.size > MAX_CLAVES && !rateLimitStore.has(key)) purgar();
     if (!rateLimitStore.has(key)) rateLimitStore.set(key, []);
     const hits = rateLimitStore.get(key).filter(t => t > windowStart);
     hits.push(now);
