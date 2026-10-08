@@ -192,6 +192,33 @@ async function resolver(r, { permitirIa }) {
   return traza;
 }
 
+/* ───────── Catálogo ───────── */
+
+const API_URL = (process.env.MIRA_API_URL || 'https://mira-api-xveu.onrender.com').replace(/\/$/, '');
+const CAMPOS = ['nombre', 'direccion_completa', 'ciudad', 'categorias', 'precio', 'coordenadas', 'imagen_url', 'imagen_fuente'];
+
+/**
+ * El catálogo se lee de la API pública, que ya lo tiene en caché: 0 lecturas
+ * de Firestore. Solo si la API no responde se lee Firestore (1 lectura por
+ * restaurante), y avisando, para no gastar cuota sin querer.
+ */
+async function cargarCatalogo(db) {
+  try {
+    const res = await fetch(`${API_URL}/v1/restaurants?all=1`, { signal: AbortSignal.timeout(60000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+    const items = Array.isArray(d) ? d : d.items || [];
+    if (!items.length) throw new Error('catálogo vacío');
+    console.log(`📚 Catálogo desde la API (${items.length}, 0 lecturas de Firestore).`);
+    return items.map((r) => ({ id: String(r.id || r.yelp_id), ...Object.fromEntries(CAMPOS.map((k) => [k, r[k] ?? null])) }));
+  } catch (e) {
+    if (!db) throw new Error(`La API no dio el catálogo (${e.message}) y no hay serviceAccountKey.json para leer Firestore.`);
+    console.log(`⚠️  La API no dio el catálogo (${e.message}): se lee de Firestore (~1 lectura por restaurante).`);
+    const snap = await db.collection('restaurants').select(...CAMPOS).get();
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  }
+}
+
 /* ───────── Deshacer ───────── */
 
 async function deshacer(db, archivo) {
@@ -213,15 +240,15 @@ async function deshacer(db, archivo) {
 /* ───────── Principal ───────── */
 
 async function main() {
-  if (!fs.existsSync(CRED)) throw new Error('Falta yelp-connection/serviceAccountKey.json (no se sube al repo).');
-  if (!admin.apps.length) admin.initializeApp({ credential: admin.credential.cert(require(CRED)), storageBucket: BUCKET });
-  const db = admin.firestore();
+  // --listar solo necesita la API pública: no hace falta la clave de Firebase.
+  const hayCred = fs.existsSync(CRED);
+  if (!hayCred && !args.listar) throw new Error('Falta yelp-connection/serviceAccountKey.json (no se sube al repo).');
+  if (hayCred && !admin.apps.length) admin.initializeApp({ credential: admin.credential.cert(require(CRED)), storageBucket: BUCKET });
+  const db = hayCred ? admin.firestore() : null;
 
   if (args.deshacer) return deshacer(db, args.deshacer);
 
-  const snap = await db.collection('restaurants')
-    .select('nombre', 'direccion_completa', 'ciudad', 'categorias', 'precio', 'coordenadas', 'imagen_url', 'imagen_fuente').get();
-  const todos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const todos = await cargarCatalogo(db);
   let candidatos = lib.seleccionarCandidatos(todos, { incluirStock: !args['sin-stock'], forzar: Boolean(args.forzar) });
   if (args.solo) candidatos = candidatos.filter((r) => r.id === args.solo);
   const porMotivo = candidatos.reduce((m, r) => ({ ...m, [r.motivo]: (m[r.motivo] || 0) + 1 }), {});

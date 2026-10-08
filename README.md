@@ -449,7 +449,9 @@ Borra **solo** documentos con `fuente: 'sim'`; los reales no se tocan nunca.
 
 ## Fotos de restaurantes con Google Places + Gemini (`yelp-connection/fotos-places.js`)
 
-Busca foto real para los restaurantes **sin imagen**, con **imagen repetida** o con una **genérica de Pexels**.
+Busca foto real para los restaurantes **sin imagen**, con **imagen repetida** o con una **genérica de banco de fotos** (Pexels, loremflickr…). loremflickr repite las mismas fotos con URLs distintas, así que se reconoce por la fuente o el dominio, no por URL repetida.
+
+El catálogo se lee de la API pública (ya cacheado: **0 lecturas de Firestore**); solo si la API no responde se lee Firestore. En la base de datos solo se escribe con `--aplicar`, 1 escritura por restaurante cambiado, y las imágenes generadas van a Storage, no a Firestore.
 
 1. **Google Places (API oficial):** localiza el local por nombre y dirección y comprueba que es el mismo (nombre parecido y a menos de 250 m).
 2. **Gemini (visión):** revisa cada foto candidata. Solo acepta fachada, interior o plato, **sin personas en primer plano**, sin menús ni carteles y con calidad ≥ 3. Prefiere fachada/interior.
@@ -471,7 +473,7 @@ La API (`mira-api`) necesita también `GOOGLE_PLACES_API_KEY` para servir las fo
 
 ```bash
 cd yelp-connection
-node fotos-places.js --listar                     # cuántos necesitan foto (sin llamadas de pago)
+node fotos-places.js --listar                     # cuántos necesitan foto (sin claves ni llamadas de pago)
 node fotos-places.js                              # PRUEBA con 5: llama a las APIs y no escribe nada
 node fotos-places.js --aplicar --limite=50        # guarda en Firestore (hace copia antes)
 node fotos-places.js --deshacer=backups/fotos-<fecha>.json

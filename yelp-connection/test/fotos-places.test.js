@@ -71,3 +71,21 @@ test('prompt de generación: describe la cocina y prohíbe personas, texto y log
   assert.match(p, /Sin personas/);
   assert.match(p, /sin texto/);
 });
+
+test('stock: loremflickr y Pexels por fuente o por dominio; Yelp no', () => {
+  assert.equal(lib.esStock({ imagen_fuente: 'loremflickr', imagen_url: 'https://loremflickr.com/800/600/pizza?lock=1' }), true);
+  assert.equal(lib.esStock({ imagen_fuente: null, imagen_url: 'https://loremflickr.com/800/600/tacos?lock=2' }), true);
+  assert.equal(lib.esStock({ imagen_fuente: 'pexels', imagen_url: 'https://images.pexels.com/x.jpg' }), true);
+  assert.equal(lib.esStock({ imagen_fuente: 'yelp', imagen_url: 'https://s3-media0.fl.yelpcdn.com/x.jpg' }), false);
+  assert.equal(lib.esStock({ imagen_url: 'no es una url' }), false);
+});
+
+test('candidatos: las de loremflickr entran aunque sus URLs sean distintas (repetidas visualmente)', () => {
+  const lista = [
+    base('y', { imagen_url: 'https://s3-media0.fl.yelpcdn.com/1.jpg', imagen_fuente: 'yelp' }),
+    base('l1', { imagen_url: 'https://loremflickr.com/800/600/pizza?lock=1', imagen_fuente: 'loremflickr' }),
+    base('l2', { imagen_url: 'https://loremflickr.com/800/600/pizza?lock=2', imagen_fuente: 'loremflickr' }),
+    base('s', { imagen_url: null }),
+  ];
+  assert.deepEqual(lib.seleccionarCandidatos(lista).map((r) => [r.id, r.motivo]), [['s', 'sin_foto'], ['l1', 'stock'], ['l2', 'stock']]);
+});

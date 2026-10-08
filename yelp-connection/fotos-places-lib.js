@@ -51,9 +51,24 @@ function coordsDe(r) {
  * Restaurantes que necesitan foto y por qué:
  * - 'sin_foto': Yelp no dio imagen.
  * - 'duplicada': su imagen la comparten 2+ restaurantes.
- * - 'stock': foto genérica de Pexels (no es del local).
+ * - 'stock': foto genérica de un banco de imágenes (Pexels, loremflickr…), no es del local.
+ *   loremflickr repite las mismas fotos con URLs distintas (?lock=), por eso no
+ *   basta con buscar URLs repetidas: se reconoce por la fuente o por el dominio.
  * Las ya resueltas por este script (google_places / ia) se saltan salvo `forzar`.
  */
+const FUENTES_STOCK = new Set(['pexels', 'loremflickr', 'unsplash', 'picsum', 'stock']);
+const DOMINIOS_STOCK = /(^|\.)(loremflickr\.com|pexels\.com|picsum\.photos|unsplash\.com|placehold\.co|placeimg\.com)$/i;
+
+/** ¿La imagen es de un banco de fotos genéricas? Por la fuente guardada o, si no hay, por el dominio. */
+function esStock(r) {
+  if (FUENTES_STOCK.has(String(r.imagen_fuente || '').toLowerCase())) return true;
+  try {
+    return DOMINIOS_STOCK.test(new URL(r.imagen_url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 function seleccionarCandidatos(restaurantes, { incluirStock = true, forzar = false } = {}) {
   const usos = new Map();
   for (const r of restaurantes) {
@@ -65,7 +80,7 @@ function seleccionarCandidatos(restaurantes, { incluirStock = true, forzar = fal
     let motivo = null;
     if (!r.imagen_url) motivo = 'sin_foto';
     else if (usos.get(r.imagen_url) > 1) motivo = 'duplicada';
-    else if (incluirStock && r.imagen_fuente === 'pexels') motivo = 'stock';
+    else if (incluirStock && esStock(r)) motivo = 'stock';
     if (motivo) out.push({ ...r, motivo });
   }
   // Primero los que peor están: sin foto > duplicada > stock.
@@ -149,6 +164,6 @@ function promptGeneracion(r) {
 }
 
 module.exports = {
-  normalizar, similitudNombre, distanciaM, coordsDe, seleccionarCandidatos, emparejarLugar,
+  esStock, normalizar, similitudNombre, distanciaM, coordsDe, seleccionarCandidatos, emparejarLugar,
   PROMPT_VERIFICACION, parsearVeredicto, fotoValida, elegirMejor, promptGeneracion, CATEGORIAS_OK,
 };
