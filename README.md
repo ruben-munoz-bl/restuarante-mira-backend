@@ -444,3 +444,38 @@ Borra **solo** documentos con `fuente: 'sim'`; los reales no se tocan nunca.
 
 - Lecturas: la API carga la colección una vez y luego solo pide los documentos nuevos (`insertadoEn`), como mucho cada 8 s.
 - Escrituras: 1 por evento real (tope `AUDITORIA_MAX_DIA`, 8.000 por defecto) y ~1.900 por simulación de 100 usuarios.
+
+---
+
+## Fotos de restaurantes con Google Places + Gemini (`yelp-connection/fotos-places.js`)
+
+Busca foto real para los restaurantes **sin imagen**, con **imagen repetida** o con una **genérica de Pexels**.
+
+1. **Google Places (API oficial):** localiza el local por nombre y dirección y comprueba que es el mismo (nombre parecido y a menos de 250 m).
+2. **Gemini (visión):** revisa cada foto candidata. Solo acepta fachada, interior o plato, **sin personas en primer plano**, sin menús ni carteles y con calidad ≥ 3. Prefiere fachada/interior.
+3. **Si ninguna vale:** genera una imagen con Gemini (sin personas, texto ni logos), la vuelve a verificar y la sube a Firebase Storage (`restaurantes/ia/`). En la web se marca como «IA».
+
+**Qué se guarda.** Las condiciones de Google Places no permiten guardar sus fotos ni sus URLs. Se guarda `imagen_google` (place_id, autor y tamaño de la foto verificada) y la API la sirve al vuelo en `GET /v1/restaurants/:id/foto`, con caché de 50 min. La web muestra el crédito «Foto: autor · Google», que Google exige.
+
+### Claves (en `yelp-connection/.env`, nunca en el repo)
+
+```
+GOOGLE_PLACES_API_KEY=...   # Google Maps Platform, Places API (New) activada
+GEMINI_API_KEY=...
+# opcionales: GEMINI_VISION_MODEL, GEMINI_IMAGE_MODEL, FIREBASE_STORAGE_BUCKET
+```
+
+La API (`mira-api`) necesita también `GOOGLE_PLACES_API_KEY` para servir las fotos.
+
+### Uso
+
+```bash
+cd yelp-connection
+node fotos-places.js --listar                     # cuántos necesitan foto (sin llamadas de pago)
+node fotos-places.js                              # PRUEBA con 5: llama a las APIs y no escribe nada
+node fotos-places.js --aplicar --limite=50        # guarda en Firestore (hace copia antes)
+node fotos-places.js --deshacer=backups/fotos-<fecha>.json
+```
+
+Opciones: `--sin-ia` (solo Google), `--sin-stock` (no tocar las de Pexels), `--forzar` (rehacer las ya resueltas), `--solo=<id>`.
+Cada ejecución deja un informe en `informes/` con qué foto se aceptó o descartó y por qué.
