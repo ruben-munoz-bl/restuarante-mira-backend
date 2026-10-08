@@ -26,6 +26,13 @@ cron.schedule("0 2 * * *", () => runCron("promotions", () => require("./modules/
   timezone: "UTC",
 });
 
+// Lista de espera (retenciones de 30 min vencidas → siguiente) y JAMs con el plazo cumplido.
+// Si Render duerme la API no corre: la sala se cierra igualmente al abrirla (cierre perezoso).
+cron.schedule("*/10 * * * *", () => runCron("espera_jams", async () => {
+  await require("./modules/espera/service").caducarAvisos();
+  await require("./modules/jams/service").cerrarVencidas();
+}), { timezone: "UTC" });
+
 const port = env.PORT;
 const server = app.listen(port, () => {
   logger.info({ port, env: env.NODE_ENV }, "MIRA API listening");

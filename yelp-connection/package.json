@@ -10,11 +10,12 @@
     "ver": "node ver-restaurantes.js",
     "ver:restaurantes": "node ver-restaurantes.js",
     "ver:usuarios": "node ver-usuarios.js",
-    "fotos": "node rellenar-imagenes.js",
+    "fotos": "node fotos-places.js",
     "setup": "node setup-colecciones.js",
     "recordatorios": "node recordatorios.js",
     "simular-auditoria": "node simular-auditoria.js",
-    "borrar-simulacion": "node borrar-simulacion.js"
+    "borrar-simulacion": "node borrar-simulacion.js",
+    "test": "node --test \"test/*.test.js\""
   },
   "keywords": [],
   "author": "",

@@ -3,6 +3,7 @@ const { z } = require("zod");
 const { verifyFirebaseAuth, optionalAuth } = require("../../middlewares/verifyFirebaseAuth");
 const { validate } = require("../../middlewares/validate");
 const restaurantService = require("./service");
+const { urlFotoGoogle } = require("./fotoGoogle");
 
 const router = Router();
 
@@ -41,6 +42,20 @@ router.get("/mapa", optionalAuth, async (req, res, next) => {
     const items = await restaurantService.listarMapa({ ciudad: req.query.ciudad || null });
     res.set("Cache-Control", "public, max-age=300");
     res.json({ items, total: items.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Foto de Google Places (verificada por fotos-places.js): redirige a la URL temporal de Google.
+// Sin foto disponible responde 404 y la tarjeta usa su imagen de respaldo.
+router.get("/:id/foto", async (req, res, next) => {
+  try {
+    const foto = await urlFotoGoogle(req.params.id);
+    if (!foto?.url) return res.status(404).json({ error: "NOT_FOUND", message: "Sin foto de Google" });
+    if (foto.autor) res.setHeader("X-Foto-Autor", encodeURIComponent(foto.autor));
+    res.setHeader("Cache-Control", "public, max-age=1800");
+    res.redirect(302, foto.url);
   } catch (err) {
     next(err);
   }
