@@ -75,6 +75,31 @@ router.post("/wheel", verifyFirebaseAuth, async (req, res, next) => {
   }
 });
 
+const discountClaimSchema = z.object({
+  descuentoId: z.string().min(1),
+  restauranteId: z.string().min(1).optional().nullable(),
+});
+
+router.get("/discounts", verifyFirebaseAuth, async (req, res) => {
+  res.json({ descuentos: pointsService.listarDescuentos() });
+});
+
+router.post("/discount/claim", verifyFirebaseAuth, validate(discountClaimSchema), async (req, res, next) => {
+  try {
+    const result = await pointsService.canjearDescuento(
+      req.user.uid,
+      req.validated.descuentoId,
+      req.validated.restauranteId || null,
+    );
+    res.status(201).json(result);
+  } catch (err) {
+    if (err.code === "INSUFFICIENT") return res.status(400).json({ error: "INSUFFICIENT", message: err.message });
+    if (err.code === "VALIDATION_ERROR") return res.status(400).json({ error: "VALIDATION_ERROR", message: err.message });
+    if (err.code === "NOT_FOUND") return res.status(404).json({ error: "NOT_FOUND", message: err.message });
+    next(err);
+  }
+});
+
 router.post("/review", verifyFirebaseAuth, async (req, res, next) => {
   try {
     const result = await pointsService.reviewPoints(req.user.uid);

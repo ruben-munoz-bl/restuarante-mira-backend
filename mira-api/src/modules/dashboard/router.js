@@ -30,12 +30,12 @@ router.get("/my-restaurants", verifyFirebaseAuth, authorize("empresa", "admin"),
 }));
 
 router.get("/my-restaurant", verifyFirebaseAuth, authorize("empresa", "admin"), asyncHandler(async (req, res) => {
-  const data = await getMyRestaurant(req.user.uid, req.query.id || req.query.restaurantId || null);
+  const data = await getMyRestaurant(req.user.uid, req.query.id || req.query.restaurantId || null, req.user.role);
   res.json(data);
 }));
 
 router.get("/restaurant/:id", verifyFirebaseAuth, authorize("empresa", "admin"), asyncHandler(async (req, res) => {
-  const data = await getMyRestaurant(req.user.uid, req.params.id);
+  const data = await getMyRestaurant(req.user.uid, req.params.id, req.user.role);
   res.json(data);
 }));
 

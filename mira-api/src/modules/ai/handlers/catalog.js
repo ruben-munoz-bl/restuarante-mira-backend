@@ -105,7 +105,7 @@ myRestaurants: async (ctx, args) => {
     myRestaurant: async (ctx, args) => {
     const uid = requireUid(ctx);
     const id = (args || {}).id || null;
-    return dashboardService.getMyRestaurant(uid, id);
+    return dashboardService.getMyRestaurant(uid, id, ctx.user.role);
     },
 
   updateRestaurant: async (ctx, args) => {

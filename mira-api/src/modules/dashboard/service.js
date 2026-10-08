@@ -201,7 +201,15 @@ async function resolveRestaurantId(uid, restaurantIdOverride) {
   if (restaurantIdOverride) return restaurantIdOverride;
   const userDoc = await db.collection("usuarios").doc(uid).get();
   const userData = userDoc.exists ? userDoc.data() : {};
+
+  // restaurantId es el "principal"; si no existe, el primero de restaurantIds.
+  // Antes se caía a "el primero por uid", que devolvía un restaurante
+  // arbitrario cuando el usuario tenía varios.
   if (userData.restaurantId) return userData.restaurantId;
+  if (Array.isArray(userData.restaurantIds) && userData.restaurantIds.length) {
+    return userData.restaurantIds[0];
+  }
+
   const snap = await db.collection("restaurants").where("uid", "==", uid).limit(1).get();
   if (snap.empty) {
     // No es que el restaurante no exista: es que este usuario no tiene ninguno
@@ -216,11 +224,34 @@ async function resolveRestaurantId(uid, restaurantIdOverride) {
   return snap.docs[0].id;
 }
 
-async function getMyRestaurant(uid, restaurantIdOverride) {
+async function getMyRestaurant(uid, restaurantIdOverride, rol = null) {
   const restaurantId = await resolveRestaurantId(uid, restaurantIdOverride);
   const restDoc = await db.collection("restaurants").doc(restaurantId).get();
-  if (!restDoc.exists) throw notFoundError();
-  const restaurante = { id: restDoc.id, ...restDoc.data() };
+  if (!restDoc.exists) {
+    const err = new Error("Restaurante no encontrado");
+    err.status = 404;
+    err.code = "NOT_FOUND";
+    throw err;
+  }
+  const data = restDoc.data() || {};
+  // Con ?restaurantId= no se comprueba la pertenencia: cualquiera podría ver
+  // el panel de otro. Los admins sí pueden (gestionan la plataforma).
+  if (restaurantIdOverride && rol !== "admin") {
+    const userSnap = await db.collection("usuarios").doc(uid).get().catch(() => null);
+    const userData = userSnap && userSnap.exists ? userSnap.data() : {};
+    const suyos = new Set([
+      ...(Array.isArray(userData.restaurantIds) ? userData.restaurantIds : []),
+      userData.restaurantId,
+    ].filter(Boolean));
+    const esDueño = data.uid === uid || (!!data.email && !!userData.email && data.email === userData.email);
+    if (!suyos.has(restaurantId) && !esDueño) {
+      const err = new Error("No tienes permiso para ver el panel de ese restaurante");
+      err.status = 403;
+      err.code = "FORBIDDEN";
+      throw err;
+    }
+  }
+  const restaurante = { id: restDoc.id, ...data };
 
   const [reservas, ticketsSnap, finanzasSnap] = await Promise.all([
     fetchReservasForRestaurant(restaurantId),

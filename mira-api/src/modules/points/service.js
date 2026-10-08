@@ -1,5 +1,6 @@
 const { db } = require("../../middlewares/verifyFirebaseAuth");
 const { logger } = require("../../middlewares/errorHandler");
+const { env } = require("../../config/env");
 
 const WHEEL_PRIZES = [
   { puntos: 20, label: "20 MIRA", peso: 475 },
@@ -201,6 +202,86 @@ async function reviewPoints(uid) {
   return { puntos: 20, nuevoSaldo };
 }
 
+const COLECCION_DESCUENTOS = "descuentos";
+const PUNTOS_POR_EURO = Number(env.PUNTOS_TO_EURO) || 0.01;
+const MIN_PRECIO = Number(env.MIN_PRECIO_DESCUENTO) || 20;
+
+/** Catálogo de descuentos canjeables con puntos. */
+const DESCUENTOS_DISPONIBLES = [
+  { id: "5", puntos: 500, euros: 5, etiqueta: "5 € de descuento" },
+  { id: "10", puntos: 1000, euros: 10, etiqueta: "10 € de descuento" },
+  { id: "20", puntos: 2000, euros: 20, etiqueta: "20 € de descuento" },
+];
+
+function listarDescuentos() {
+  return DESCUENTOS_DISPONIBLES.map((d) => ({ ...d, disponibles: true }));
+}
+
+function buscarDescuento(id) {
+  return DESCUENTOS_DISPONIBLES.find((d) => d.id === String(id)) || null;
+}
+
+/**
+ * Canjea puntos por un descuento. Genera un cupón de un solo uso y descuenta
+ * el saldo en una transacción (nunca queda saldo negativo).
+ */
+async function canjearDescuento(uid, descuentoId, restauranteId = null) {
+  const dto = buscarDescuento(descuentoId);
+  if (!dto) {
+    const err = new Error("Ese descuento no existe");
+    err.status = 400;
+    err.code = "VALIDATION_ERROR";
+    throw err;
+  }
+  const resultado = await db.runTransaction(async (tx) => {
+    const userRef = db.collection("usuarios").doc(uid);
+    const snap = await tx.get(userRef);
+    if (!snap.exists) {
+      const err = new Error("Usuario no encontrado");
+      err.status = 404;
+      err.code = "NOT_FOUND";
+      throw err;
+    }
+    const data = snap.data();
+    if ((data.saldoPuntos || 0) < dto.puntos) {
+      const err = new Error(`Saldo insuficiente: necesitas ${dto.puntos} puntos y tienes ${data.saldoPuntos || 0}`);
+      err.status = 400;
+      err.code = "INSUFFICIENT";
+      throw err;
+    }
+    const saldo = (data.saldoPuntos || 0) - dto.puntos;
+    tx.update(userRef, {
+      saldoPuntos: saldo,
+      totalCanjeado: (data.totalCanjeado || 0) + dto.puntos,
+      updatedAt: new Date(),
+    });
+    tx.set(db.collection("puntos_movimientos").doc(), {
+      uid,
+      tipo: "canje_descuento",
+      puntos: -dto.puntos,
+      descripcion: `Canje: ${dto.etiqueta}`,
+      createdAt: new Date(),
+    });
+    const cuponRef = db.collection(COLECCION_DESCUENTOS).doc();
+    const cupon = {
+      uid,
+      descuentoId: dto.id,
+      euros: dto.euros,
+      puntos: dto.puntos,
+      restauranteId: restauranteId || null,
+      codigo: `MIRA-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
+      estado: "activo",
+      usado: false,
+      createdAt: new Date(),
+      expiraEn: new Date(Date.now() + 30 * 86400000),
+    };
+    tx.set(cuponRef, cupon);
+    return { nuevoSaldo: saldo, cupon: { id: cuponRef.id, ...cupon } };
+  });
+  logger.info({ uid, descuentoId: dto.id }, "Discount claimed");
+  return resultado;
+}
+
 module.exports = {
   calcRachaLogin,
   getBalance,
@@ -211,5 +292,8 @@ module.exports = {
   getWheelPrizes,
   claimWheelReward,
   reviewPoints,
+  listarDescuentos,
+  canjearDescuento,
+  DESCUENTOS_DISPONIBLES,
   hoyStr,
 };

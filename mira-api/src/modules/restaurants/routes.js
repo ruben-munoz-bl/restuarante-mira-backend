@@ -34,6 +34,18 @@ router.get("/count", optionalAuth, async (req, res, next) => {
   }
 });
 
+// Versión ligera para el mapa: 8 campos por restaurante (~9x menos que all=1).
+// Se sirve desde el catálogo en memoria o desde el documento __catalogo__ (1 lectura).
+router.get("/mapa", optionalAuth, async (req, res, next) => {
+  try {
+    const items = await restaurantService.listarMapa({ ciudad: req.query.ciudad || null });
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({ items, total: items.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Diagnóstico de la caché del catálogo: cuántas cargas reales a Firestore se han hecho.
 router.get("/cache/stats", optionalAuth, (req, res) => {
   res.json({ cache: restaurantService.estadisticasCache() });

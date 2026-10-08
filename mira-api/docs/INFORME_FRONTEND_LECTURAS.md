@@ -44,6 +44,8 @@ Una sola búsqueda escrita a mano en el buscador puede consumir **más que la cu
 
 ### P0 — Buscador con debounce, mínimo de caracteres y cancelación
 
+> **Mejor aún:** desde ahora hay un endpoint específico para el mapa (ver sección 4.0) y la búsqueda con `q` sale de la caché de memoria, así que ya no cuesta 690 lecturas aunque repitas llamadas. Aun así, sigue siendo buena idea no bombardear el servidor.
+
 **Problema:** cada tecla pulsada dispara una petición de 690 lecturas.
 
 ```jsx
@@ -184,7 +186,39 @@ cards.map(c => <Card onLoad={() => getAvailability(c.id, fecha, hora)} />)
 
 ---
 
-## 5. Cómo medir que está funcionando
+## 4.0 — NUEVO: endpoint para el mapa (recomendado para el mapa)
+
+### `GET /v1/restaurants/mapa`
+
+Devuelve **solo los 8 campos que el mapa necesita**: `id`, `nombre`, `coordenadas`, `rating_yelp`, `precio`, `categorias`, `imagen_url`, `ciudad`.
+
+Sin reseñas, sin descripciones, sin teléfonos. Es **6 veces más ligero** que `all=1`.
+
+```jsx
+const res = await fetch("/v1/restaurants/mapa");       // ~198 KB en vez de 1,25 MB
+const { items, total } = await res.json();
+```
+
+Filtro opcional por ciudad:
+```jsx
+fetch("/v1/restaurants/mapa?ciudad=Barcelona")
+```
+
+**Ventaja extra:** la primera petición del servidor tras un arranque en frío cuesta **1 lectura** en vez de 698, porque el backend mantiene un documento resumen con el catálogo. Es decir: de ~22.000 lecturas/día a ~32.
+
+### `GET /v1/restaurants/cache/stats`
+
+Diagnóstico: `cargas` son las lecturas reales a Firestore desde que arrancó el servidor; `aciertos` las servidas desde memoria.
+
+```json
+{ "cache": { "cargas": 1, "aciertos": 843, "ttlMs": 300000, "tamano": 698 } }
+```
+
+### ¿Y `all=1`?
+
+**Se queda funcionando igual**, por si lo necesitas en otra pantalla. Pero para el mapa, usa `/mapa`.
+
+---
 
 **En el backend** (sin desplegar nada más):
 ```bash
@@ -196,12 +230,13 @@ curl https://<tu-api>/v1/restaurants/cache/stats
 - `cargas` = lecturas **reales** a Firestore desde que arrancó el servidor.
 - Si `cargas` no sube al navegar, la caché funciona.
 
-**Objetivo:** bajar de 44.000 lecturas/día a **menos de 2.000**.
+**Objetivo:** bajar de 44.000 lecturas/día a **menos de 2.000**. Con el endpoint `/mapa` y el documento de catálogo, el backend ya queda en **~32 lecturas/día**.
 
 ---
 
 ## 6. Checklist
 
+- [ ] **Migrar el mapa a `GET /v1/restaurants/mapa`** (lo más importante)
 - [ ] Buscador con debounce 450 ms
 - [ ] Buscador con mínimo 3 caracteres
 - [ ] Cancelar la petición anterior (AbortController)

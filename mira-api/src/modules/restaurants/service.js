@@ -25,7 +25,10 @@ async function catalogo() {
   inflight = (async () => {
     stats.misses += 1;
     const snap = await db.collection("restaurants").get();
-    const items = snap.docs.map((doc) => mapearDoc(doc.id, doc.data()));
+    // __catalogo__ es un documento técnico, no un restaurante.
+    const items = snap.docs
+      .filter((doc) => doc.id !== DOC_CATALOGO)
+      .map((doc) => mapearDoc(doc.id, doc.data()));
     const byId = new Map(items.map((r) => [r.id, r]));
     cache = { at: Date.now(), items, byId };
     stats.cargas += 1;
@@ -35,6 +38,98 @@ async function catalogo() {
     inflight = null;
   });
   return inflight;
+}
+
+// ─── Catálogo ligero (documento único) ──────────────────────────────────────
+// Leer los 698 restaurantes costs 698 lecturas cada vez que el servidor
+// arranca en frío. Con un único documento generado guardamos el mismo catálogo
+// con solo los campos del mapa: 1 lectura en vez de 698.
+// Firestore reserva los ids que empiezan por "__": no puede usarse como nombre
+// de documento. "_catalogo" sí es válido y no choca con un id real (Yelp/Firestore).
+const DOC_CATALOGO = "_catalogo";
+const MAX_BYTES_CATALOGO = 800 * 1024; // margen sobre el límite de 1 MiB de Firestore
+
+const CAMPOS_MAPA = ["id", "nombre", "coordenadas", "rating_yelp", "precio", "categorias", "imagen_url", "ciudad"];
+
+function versionMapa(r) {
+  return {
+    id: r.id,
+    nombre: r.nombre,
+    coordenadas: r.coordenadas || null,
+    rating_yelp: typeof r.rating_yelp === "number" ? r.rating_yelp : null,
+    precio: r.precio || null,
+    categorias: Array.isArray(r.categorias) ? r.categorias.slice(0, 6) : [],
+    imagen_url: r.imagen_url || null,
+    ciudad: r.ciudad || null,
+  };
+}
+
+/** Devuelve la versión ligera del catálogo, o null si aún no se ha generado. */
+async function leerCatalogoMapa() {
+  try {
+    const snap = await db.collection("restaurants").doc(DOC_CATALOGO).get();
+    if (!snap.exists) return null;
+    const data = snap.data() || {};
+    if (!Array.isArray(data.restaurantes) || data.restaurantes.length === 0) return null;
+    return data;
+  } catch (err) {
+    logger.warn({ error: err.message }, "no se pudo leer el catálogo ligero");
+    return null;
+  }
+}
+
+/**
+ * Regenera el documento del catálogo ligero a partir de los datos ya cargados.
+ * Devuelve true si se escribió. No hace nada si el catálogo no existe o
+ * exceedería el tamaño seguro.
+ */
+async function regenerarCatalogoMapa(items) {
+  if (!items || !items.length) return false;
+  const restaurantes = items.map(versionMapa);
+  const doc = {
+    _tipo: "catalogo",
+    version: CAMPOS_MAPA,
+    generadoAt: Date.now(),
+    total: restaurantes.length,
+    restaurantes,
+  };
+  let bytes;
+  try {
+    bytes = Buffer.byteLength(JSON.stringify(doc), "utf8");
+  } catch {
+    return false;
+  }
+  if (bytes > MAX_BYTES_CATALOGO) {
+    logger.warn({ bytes, max: MAX_BYTES_CATALOGO }, "catálogo ligero demasiado grande: no se regenera");
+    return false;
+  }
+  await db.collection("restaurants").doc(DOC_CATALOGO).set(doc);
+  logger.info({ total: restaurantes.length, bytes }, "catálogo ligero regenerado");
+  return true;
+}
+
+/**
+ * Versión ligera del catálogo para el mapa. Prioridad:
+ * 1. Si ya está en memoria (caché caliente) → sin lecturas.
+ * 2. Si no, se regenera desde memoria.
+ * 3. Si no hay nada en memoria, se lee el documento ligero (1 lectura).
+ * 4. Si tampoco existe, se cae a los restaurantes sueltos (698 lecturas).
+ */
+async function listarMapa({ ciudad = null } = {}) {
+  if (cache.items) {
+    await regenerarCatalogoMapa(cache.items);
+    const items = cache.items.map(versionMapa);
+    return ciudad ? items.filter((r) => r.ciudad === ciudad) : items;
+  }
+  const doc = await leerCatalogoMapa();
+  if (doc) {
+    const items = doc.restaurantes.map((r) => (ciudad && r.ciudad !== ciudad ? null : r)).filter(Boolean);
+    if (items.length) return items;
+  }
+  const todos = await listarRestaurantes({ all: true });
+  const items = todos.items.map(versionMapa);
+  await regenerarCatalogoMapa(items);
+  return ciudad ? items.filter((r) => r.ciudad === ciudad) : items;
 }
 
 function invalidarCatalogo() {
@@ -132,8 +227,9 @@ async function listarRestaurantes({ limit = TAMANO_PAGINA, all = false, cursor =
 
   try {
     const snap = await query.get();
-    let items = snap.docs.map((doc) => mapearDoc(doc.id, doc.data()));
-    const last = snap.docs.length ? snap.docs[snap.docs.length - 1] : null;
+    let docs = snap.docs.filter((doc) => doc.id !== DOC_CATALOGO);
+    let items = docs.map((doc) => mapearDoc(doc.id, doc.data()));
+    const last = docs.length ? docs[docs.length - 1] : null;
     return {
       items,
       cursor: last ? encodeCursor(last.data().rating_yelp ?? 0, last.id) : null,
@@ -244,12 +340,15 @@ async function actualizarRestaurante(restaurantId, uid, data) {
 
 module.exports = {
   listarRestaurantes,
+  listarMapa,
   contarRestaurantes,
   obtenerRestaurante,
   obtenerPorUid,
   obtenerPorEmail,
   actualizarRestaurante,
   invalidarCatalogo,
+  regenerarCatalogoMapa,
   estadisticasCache,
+  DOC_CATALOGO,
   TAMANO_PAGINA,
 };
