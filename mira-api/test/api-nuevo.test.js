@@ -199,6 +199,48 @@ test("POST /v1/points/redeem con descuento inexistente → 400 con mensaje", asy
   assert.match(res.body.message, /descuento no existe/i);
 });
 
+test("/mapa NO escribe en Firestore en cada llamada (regresión de escrituras)", async () => {
+  const { mockDb } = require("./helpers/mockFirebase");
+  seed("restaurants", "r-w", { nombre: "W", uid: "u-x", rating_yelp: 4 });
+
+  // Interceptamos las escrituras del mock.
+  const docProto = Object.getPrototypeOf(mockDb.collection("__probe").doc("__probe"));
+  const origSet = docProto.set;
+  let escrituras = 0;
+  docProto.set = function (data, opts) {
+    escrituras += 1;
+    return origSet.call(this, data, opts);
+  };
+
+  try {
+    restaurantService.invalidarCatalogo();
+    await request(app).get("/v1/restaurants/mapa");
+    const tras1 = escrituras;
+
+    // 20 cargas más del mapa: no debe escribir NI UNA vez.
+    for (let i = 0; i < 20; i++) await request(app).get("/v1/restaurants/mapa");
+    assert.equal(escrituras, tras1, "/mapa no debe reescribir el documento _catalogo en cada petición");
+  } finally {
+    docProto.set = origSet;
+  }
+});
+
+test("la caché sirve datos viejos mientras refresca (no 700 lecturas por petición)", async () => {
+  seed("restaurants", "r-s", { nombre: "S", uid: "u-x", rating_yelp: 4 });
+  restaurantService.invalidarCatalogo();
+  await restaurantService.listarMapa();
+
+  const antes = restaurantService.estadisticasCache();
+  // Forzamos la expiración del TTL.
+  const { env } = require("../src/config/env");
+  assert.ok(env.CATALOG_CACHE_TTL_MS > 0);
+  await new Promise((r) => setTimeout(r, 5));
+  const items = await restaurantService.listarRestaurantes({ q: "s" });
+  assert.ok(items.items.length >= 1);
+  const despues = restaurantService.estadisticasCache();
+  assert.ok(despues.cargas <= antes.cargas + 1, "no debe recargar el catálogo en cada petición tras caducar");
+});
+
 test("dashboard: my-restaurant devuelve el restaurante completo cuando SÍ tiene", async () => {
   seed("restaurants", "r-mio", {
     nombre: "Mi Restaurante", uid: "u-emp", email: "emp@test.local", ciudad: "Barcelona",

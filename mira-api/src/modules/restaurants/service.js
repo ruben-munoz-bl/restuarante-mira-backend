@@ -13,7 +13,7 @@ const CACHE_TTL_MS = Number(env.CATALOG_CACHE_TTL_MS) || 5 * 60 * 1000;
 
 let cache = { at: 0, items: null, byId: null };
 let inflight = null;
-const stats = { cargas: 0, aciertos: 0, misses: 0 };
+const stats = { cargas: 0, aciertos: 0, misses: 0, desfasados: 0 };
 
 async function catalogo() {
   const ahora = Date.now();
@@ -21,16 +21,33 @@ async function catalogo() {
     stats.aciertos += 1;
     return cache.items;
   }
-  if (inflight) return inflight;
+
+  // Datos viejos pero utilizables: si estamos refrescando, se sirven igual.
+  // Así una:ronda de peticiones simultáneas tras caducar la caché no se
+  // convierte en 700 lecturas por cada una.
+  if (cache.items && cache.refrescando) {
+    stats.desfasados += 1;
+    return cache.items;
+  }
+
+  if (inflight) {
+    if (cache.items) {
+      stats.desfasados += 1;
+      return cache.items;
+    }
+    return inflight;
+  }
+
+  cache.refrescando = true;
   inflight = (async () => {
     stats.misses += 1;
     const snap = await db.collection("restaurants").get();
-    // __catalogo__ es un documento técnico, no un restaurante.
+    // _catalogo es un documento técnico, no un restaurante.
     const items = snap.docs
       .filter((doc) => doc.id !== DOC_CATALOGO)
       .map((doc) => mapearDoc(doc.id, doc.data()));
     const byId = new Map(items.map((r) => [r.id, r]));
-    cache = { at: Date.now(), items, byId };
+    cache = { at: Date.now(), items, byId, refrescando: false };
     stats.cargas += 1;
     logger.info({ total: items.length }, "restaurants cache cargada");
     return items;
@@ -116,8 +133,10 @@ async function regenerarCatalogoMapa(items) {
  * 4. Si tampoco existe, se cae a los restaurantes sueltos (698 lecturas).
  */
 async function listarMapa({ ciudad = null } = {}) {
+  // OJO: aquí NO se regenera el documento en cada llamada. Escribirlo cuesta
+  // ~203 KB por petición y agotaba las escrituras de Firestore. Solo se
+  // regenera cuando el catálogo cambia (invalidarCatalogo / escritura).
   if (cache.items) {
-    await regenerarCatalogoMapa(cache.items);
     const items = cache.items.map(versionMapa);
     return ciudad ? items.filter((r) => r.ciudad === ciudad) : items;
   }
@@ -126,6 +145,8 @@ async function listarMapa({ ciudad = null } = {}) {
     const items = doc.restaurantes.map((r) => (ciudad && r.ciudad !== ciudad ? null : r)).filter(Boolean);
     if (items.length) return items;
   }
+  // No existe el documento: se construye desde los datos reales y se guarda
+  // una única vez para los próximos arranques en frío.
   const todos = await listarRestaurantes({ all: true });
   const items = todos.items.map(versionMapa);
   await regenerarCatalogoMapa(items);
