@@ -3,6 +3,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const { requestId, requestLogger, errorHandler } = require("./middlewares/errorHandler");
 const { accessLog } = require("./middlewares/accessLog");
+const { middlewareMetricas } = require("./modules/metricas/metricas");
 
 const app = express();
 
@@ -40,6 +41,7 @@ app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
 
 app.use(express.json());
 app.use(requestId);
+app.use(middlewareMetricas);
 app.use(requestLogger);
 app.use(accessLog);
 
@@ -54,6 +56,9 @@ app.use("/v1/invite", require("./modules/invitations/routes"));
 app.use("/v1/promotions", require("./modules/promotions/routes"));
 app.use("/v1/interactions", require("./modules/interactions/routes"));
 app.use("/v1/auditoria", require("./modules/auditoria/routes"));
+app.use("/v1/metricas", require("./modules/metricas/routes"));
+app.use("/v1/espera", require("./modules/espera/routes"));
+app.use("/v1/jams", require("./modules/jams/routes"));
 app.use("/v1/reviews", require("./modules/reviews/routes"));
 app.use("/v1/admin", require("./modules/admin/routes"));
 app.use("/v1/dashboard", require("./modules/dashboard/router"));

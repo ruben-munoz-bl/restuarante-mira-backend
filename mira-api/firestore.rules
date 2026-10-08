@@ -152,6 +152,17 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    // Lista de espera y salas de reserva en grupo: solo las escribe la API (firebase-admin).
+    match /espera/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /jams/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     match /auditoria_estado/{id} {
       allow read: if isAdmin();
       allow write: if false;

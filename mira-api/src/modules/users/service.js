@@ -32,6 +32,12 @@ async function updateMe(uid, datos) {
   PERFIL_KEYS.forEach((k) => {
     if (datos[k] !== undefined) update[k] = datos[k];
   });
+  if (update.tipo !== undefined) {
+    // Solo cliente ↔ empresa (registro como empresa). Un admin no se rebaja desde su perfil
+    // y nadie se sube a admin por aquí: eso se hace a mano en la base de datos.
+    const actual = await db.collection("usuarios").doc(uid).get();
+    if (update.tipo === "admin" || (actual.exists && actual.data().tipo === "admin")) delete update.tipo;
+  }
   if (Object.keys(update).length === 0) return { updated: false };
   update.actualizado = new Date();
   await db.collection("usuarios").doc(uid).set(update, { merge: true });

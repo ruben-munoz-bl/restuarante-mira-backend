@@ -16,7 +16,8 @@ router.get("/me", verifyFirebaseAuth, async (req, res, next) => {
 });
 
 const updateSchema = z.object({
-  tipo: z.enum(["cliente", "empresa", "admin"]).optional(),
+  // "admin" nunca se acepta desde el cliente: cualquiera podría nombrarse administrador.
+  tipo: z.enum(["cliente", "empresa"]).optional(),
   nombre: z.string().optional(),
   email: z.string().optional(),
   soloVegano: z.boolean().optional(),
