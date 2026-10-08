@@ -26,6 +26,7 @@ router.get("/availability", optionalAuth, async (req, res, next) => {
       restaurantId,
       req.query.fecha,
       req.query.hora,
+      req.user?.uid || null,
     );
     res.json(result);
   } catch (err) {

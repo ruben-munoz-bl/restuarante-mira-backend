@@ -2,6 +2,8 @@ const { db } = require("../../middlewares/verifyFirebaseAuth");
 const { logger } = require("../../middlewares/errorHandler");
 const restaurantsService = require("../restaurants/service");
 const { SLOTS, PUNTOS_RESERVA_BASE, MULTIPLICADOR_RACHA } = require("../../config/constants");
+// Carga diferida: espera/service usa mensajes y no debe crear un ciclo al arrancar.
+const espera = () => require("../espera/service");
 
 function limitePorResenas(totalResenasYelp) {
   const n = Number(totalResenasYelp) || 0;
@@ -33,15 +35,17 @@ function notFoundError() {
   return err;
 }
 
-async function getDisponibilidad(restaurantId, fecha, hora) {
+async function getDisponibilidad(restaurantId, fecha, hora, uid = null) {
   // La ficha del restaurante sale de la caché de catálogo (0 lecturas); el
   // aforo sí se lee de Firestore porque cambia con cada reserva.
   const restaurante = await restaurantsService.obtenerRestaurante(restaurantId);
   const limite = limiteDelLocal(restaurante);
   if (!fecha || !hora) return { limite, ocupadas: 0, libres: limite };
   const snap = await db.collection("aforo").doc(aforoId(restaurantId, fecha, hora)).get();
-  const ocupadas = snap.exists ? Number(snap.data().ocupadas) || 0 : 0;
-  return { limite, ocupadas, libres: Math.max(0, limite - ocupadas) };
+  const aforo = snap.exists ? snap.data() : {};
+  const ocupadas = Number(aforo.ocupadas) || 0;
+  // Las plazas retenidas para la lista de espera cuentan como ocupadas (salvo la tuya).
+  return { limite, ocupadas, ...espera().libresPara(aforo, limite, uid) };
 }
 
 async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, comensales, comentarios, usuario }) {
@@ -58,8 +62,16 @@ async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, com
     const limite = limiteDelLocal(restaurante);
     const aforoRef = db.collection("aforo").doc(aforoId(restId, fecha, hora));
     const aforoSnap = await tx.get(aforoRef);
-    const ocupadas = aforoSnap.exists ? Number(aforoSnap.data().ocupadas) || 0 : 0;
-    if (ocupadas >= limite) throw new Error("Completo a esa hora. Prueba otra franja.");
+    const aforo = aforoSnap.exists ? aforoSnap.data() : {};
+    const ocupadas = Number(aforo.ocupadas) || 0;
+    const retenidas = espera().retencionesVigentes(aforo);
+    const usaRetencion = Boolean(retenidas[uid]);
+    const ajenas = Object.keys(retenidas).filter((u) => u !== uid).length;
+    if (ocupadas + ajenas >= limite) {
+      const e = new Error("Completo a esa hora. Prueba otra franja.");
+      e.code = "COMPLETO";
+      throw e;
+    }
 
     const codigo = generarCodigo();
     const nuevaRef = db.collection("reservas").doc();
@@ -88,7 +100,9 @@ async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, com
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    tx.set(aforoRef, { ocupadas: ocupadas + 1, limite }, { merge: true });
+    if (usaRetencion) delete retenidas[uid];
+    tx.set(aforoRef, { ...aforo, ocupadas: ocupadas + 1, limite, retenidas });
+    if (usaRetencion) espera().marcarConfirmadoTx(tx, restId, fecha, hora, uid);
 
     return { id: nuevaRef.id, codigo, restauranteNombre: restaurante.nombre, fecha, hora, comensales: n };
   });
@@ -98,7 +112,7 @@ async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, com
 }
 
 async function cancelarReserva(reservaId, uid, esAdmin = false) {
-  await db.runTransaction(async (tx) => {
+  const reserva = await db.runTransaction(async (tx) => {
     const ref = db.collection("reservas").doc(reservaId);
     const snap = await tx.get(ref);
     if (!snap.exists) throw new Error("La reserva ya no existe.");
@@ -112,8 +126,11 @@ async function cancelarReserva(reservaId, uid, esAdmin = false) {
     const aforoSnap = await tx.get(aforoRef);
     const ocupadas = aforoSnap.exists ? Number(aforoSnap.data().ocupadas) || 0 : 0;
     tx.set(aforoRef, { ocupadas: Math.max(0, ocupadas - 1) }, { merge: true });
+    return r;
   });
   logger.info({ reservaId, uid }, "Reservation cancelled");
+  // Hay una mesa libre: avisa al primero de la lista de espera (no bloquea la respuesta si falla).
+  await espera().alLiberarseMesa(reserva.restaurantId, reserva.fecha, reserva.hora);
 }
 
 async function otorgarPuntosReserva(reserva, multiplicadorBase) {
@@ -330,6 +347,14 @@ async function actualizarEstado(reservaId, status, { precioBase } = {}) {
     } catch (err) {
       logger.error({ reservaId, error: err.message }, "Invitation check failed");
     }
+  }
+
+  // Cancelar desde el panel también libera la plaza (antes solo lo hacía la cancelación del cliente).
+  if (status === "cancelada" && !["cancelada", "no_show"].includes(reserva.estado)) {
+    const aforoRef = db.collection("aforo").doc(aforoId(reserva.restaurantId, reserva.fecha, reserva.hora));
+    const aforoSnap = await aforoRef.get();
+    if (aforoSnap.exists) await aforoRef.set({ ocupadas: Math.max(0, (Number(aforoSnap.data().ocupadas) || 0) - 1) }, { merge: true });
+    await espera().alLiberarseMesa(reserva.restaurantId, reserva.fecha, reserva.hora);
   }
 
   if (status === "no_show") {
