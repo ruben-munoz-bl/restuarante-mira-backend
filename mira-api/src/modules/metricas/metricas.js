@@ -70,7 +70,8 @@ function middlewareMetricas(req, res, next) {
     total++;
     clientes.set(cliente, ahora);
     // Ruta con parámetros (/v1/restaurants/:id) para agrupar; sin req.route, el path recortado.
-    const ruta = `${req.method} ${req.route ? `${req.baseUrl || ""}${req.route.path}` : req.path.replace(/\/[A-Za-z0-9_-]{12,}(?=\/|$)/g, "/:id")}`.slice(0, 120);
+    const camino = req.route ? `${req.baseUrl || ""}${req.route.path}` : req.path.replace(/\/[A-Za-z0-9_-]{12,}(?=\/|$)/g, "/:id");
+    const ruta = `${req.method} ${camino.replace(/(.)\/$/, "$1")}`.slice(0, 120);
     const r = rutas.get(ruta) || { n: 0, errores: 0, ms: [] };
     r.n++;
     if (res.statusCode >= 400) r.errores++;
