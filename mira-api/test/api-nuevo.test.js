@@ -73,7 +73,7 @@ test("el catálogo ligero se lee desde 1 documento tras un arranque en frío", a
   for (let i = 0; i < 20; i++) seed("restaurants", `rc-${i}`, { nombre: `C${i}`, uid: "u-x", rating_yelp: 4 });
 
   await request(app).get("/v1/restaurants/mapa");       // genera el documento
-  restaurantService.invalidarCatalogo();                 // simula reinicio en frío
+  restaurantService.vaciarMemoriaCatalogo();             // simula reinicio en frío
 
   const statsAntes = restaurantService.estadisticasCache();
   const res = await request(app).get("/v1/restaurants/mapa");
@@ -81,7 +81,20 @@ test("el catálogo ligero se lee desde 1 documento tras un arranque en frío", a
   assert.ok(res.body.items.length >= 20, "debe devolver el catálogo completo desde el documento");
 
   const statsDespues = restaurantService.estadisticasCache();
-  assert.equal(statsDespues.cargas, statsAntes.cargas, "no debe releer los restaurantes sueltos");
+  assert.equal(statsDespues.cargasCompletas, statsAntes.cargasCompletas, "no debe releer los restaurantes sueltos");
+});
+
+test("un restaurante nuevo aparece en /mapa tras invalidar, aunque haya documento ligero", async () => {
+  seed("restaurants", "rv-1", { nombre: "Viejo", uid: "u-x", rating_yelp: 4 });
+  await request(app).get("/v1/restaurants/mapa");       // memoria + documento ligero
+
+  seed("restaurants", "rv-nuevo", { nombre: "Recién aprobado", uid: "u-x", rating_yelp: null });
+  restaurantService.invalidarCatalogo();                 // lo que hace aprobarNegocio
+  restaurantService.vaciarMemoriaCatalogo();             // y además otra instancia / reinicio
+  await new Promise((r) => setImmediate(r));
+
+  const res = await request(app).get("/v1/restaurants/mapa");
+  assert.ok(res.body.items.some((i) => i.id === "rv-nuevo"), "el restaurante nuevo debe aparecer");
 });
 
 /* ───────── POST /v1/points/discount/claim ───────── */

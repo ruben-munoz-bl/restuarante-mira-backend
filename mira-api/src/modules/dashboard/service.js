@@ -646,6 +646,7 @@ async function updateRestaurant(restaurantId, data) {
     throw err;
   }
   await ref.update(update);
+  require("../restaurants/service").invalidarCatalogo();
   logger.info({ restaurantId, fields: Object.keys(update) }, "Restaurant updated");
   return { updated: true };
 }

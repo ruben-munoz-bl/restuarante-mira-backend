@@ -12,8 +12,9 @@ const TAMANO_PAGINA = 27;
 const CACHE_TTL_MS = Number(env.CATALOG_CACHE_TTL_MS) || 5 * 60 * 1000;
 
 let cache = { at: 0, items: null, byId: null };
+const esFresco = (at) => Number(at) > 0 && Date.now() - Number(at) < CACHE_TTL_MS;
 let inflight = null;
-const stats = { cargas: 0, aciertos: 0, misses: 0, desfasados: 0 };
+const stats = { cargas: 0, cargasCompletas: 0, aciertos: 0, misses: 0, desfasados: 0 };
 
 async function catalogo() {
   const ahora = Date.now();
@@ -45,8 +46,10 @@ async function catalogo() {
     // PRIMERO: hidratar desde el documento _catalogo (1 lectura). Antes esto
     // solo se usaba para el mapa, así que un arranque en frío acababa leyendo
     // los 700 restaurantes sueltos aunque el documento ya existiera.
+    // Solo si se generó dentro del TTL: si no, un restaurante recién aprobado no
+    // aparecería nunca (el documento solo se reescribía cuando no existía).
     const doc = await leerCatalogoMapa();
-    if (doc && Array.isArray(doc.restaurantes) && doc.restaurantes.length) {
+    if (doc && esFresco(doc.generadoAt) && Array.isArray(doc.restaurantes) && doc.restaurantes.length) {
       const items = doc.restaurantes.map((r) => ({ ...r, id: r.id || r._id }));
       cache = { at: Date.now(), items, byId: new Map(items.map((r) => [r.id, r])), refrescando: false, parcial: true };
       stats.cargas += 1;
@@ -63,7 +66,12 @@ async function catalogo() {
     const byId = new Map(items.map((r) => [r.id, r]));
     cache = { at: Date.now(), items, byId, refrescando: false, parcial: false };
     stats.cargas += 1;
+    stats.cargasCompletas += 1;
     logger.info({ total: items.length, fuente: "firestore" }, "restaurants cache cargada");
+    // Una escritura por recarga completa (como mucho una por TTL), no por petición.
+    await regenerarCatalogoMapa(items).catch((err) =>
+      logger.warn({ error: err.message }, "no se pudo regenerar el catálogo ligero"),
+    );
     return items;
   })().finally(() => {
     inflight = null;
@@ -165,35 +173,27 @@ async function regenerarCatalogoMapa(items) {
 }
 
 /**
- * Versión ligera del catálogo para el mapa. Prioridad:
- * 1. Si ya está en memoria (caché caliente) → sin lecturas.
- * 2. Si no, se regenera desde memoria.
- * 3. Si no hay nada en memoria, se lee el documento ligero (1 lectura).
- * 4. Si tampoco existe, se cae a los restaurantes sueltos (698 lecturas).
+ * Versión ligera del catálogo para el mapa. Sale de catalogo(), que respeta el
+ * TTL: memoria (0 lecturas) → documento _catalogo reciente (1 lectura) →
+ * restaurantes sueltos, regenerando el documento.
  */
 async function listarMapa({ ciudad = null } = {}) {
-  // OJO: aquí NO se regenera el documento en cada llamada. Escribirlo cuesta
-  // ~203 KB por petición y agotaba las escrituras de Firestore. Solo se
-  // regenera cuando el catálogo cambia (invalidarCatalogo / escritura).
-  if (cache.items) {
-    const items = cache.items.map(versionMapa);
-    return ciudad ? items.filter((r) => r.ciudad === ciudad) : items;
-  }
-  const doc = await leerCatalogoMapa();
-  if (doc) {
-    const items = doc.restaurantes.map((r) => (ciudad && r.ciudad !== ciudad ? null : r)).filter(Boolean);
-    if (items.length) return items;
-  }
-  // No existe el documento: se construye desde los datos reales y se guarda
-  // una única vez para los próximos arranques en frío.
-  const todos = await listarRestaurantes({ all: true });
-  const items = todos.items.map(versionMapa);
-  await regenerarCatalogoMapa(items);
+  const items = (await catalogo()).map(versionMapa);
   return ciudad ? items.filter((r) => r.ciudad === ciudad) : items;
+}
+
+/** Solo para tests: vacía la memoria como un arranque en frío, sin tocar el documento. */
+function vaciarMemoriaCatalogo() {
+  cache = { at: 0, items: null, byId: null };
 }
 
 function invalidarCatalogo() {
   cache = { at: 0, items: null, byId: null };
+  // El documento lo comparten todas las instancias y los arranques en frío: si
+  // no se marca como caducado, seguirían sirviendo la versión vieja.
+  db.collection("restaurants").doc(DOC_CATALOGO).set({ generadoAt: 0 }, { merge: true }).catch((err) =>
+    logger.warn({ error: err.message }, "no se pudo invalidar el catálogo ligero"),
+  );
 }
 
 function estadisticasCache() {
@@ -420,6 +420,7 @@ module.exports = {
   obtenerPorEmail,
   actualizarRestaurante,
   invalidarCatalogo,
+  vaciarMemoriaCatalogo,
   regenerarCatalogoMapa,
   estadisticasCache,
   DOC_CATALOGO,
