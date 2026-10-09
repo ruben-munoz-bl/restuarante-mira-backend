@@ -241,6 +241,67 @@ test("la caché sirve datos viejos mientras refresca (no 700 lecturas por petici
   assert.ok(despues.cargas <= antes.cargas + 1, "no debe recargar el catálogo en cada petición tras caducar");
 });
 
+test("arranque en frío: la caché se hidrata del documento _catalogo (1 lectura)", async () => {
+  // Regresión: tras un reinicio de Render, catalogo() leía los 700
+  // restaurantes aunque el documento _catalogo ya existiera.
+  const { seed } = require("./helpers/mockFirebase");
+  seed("restaurants", "r-h", { nombre: "Hidrata", uid: "u-x", ciudad: "Barcelona", rating_yelp: 4.2 });
+
+  // Primero generamos el documento con el catálogo completo.
+  restaurantService.invalidarCatalogo();
+  await restaurantService.listarRestaurantes({ all: true });
+  await restaurantService.regenerarCatalogoMapa(await restaurantService.listarRestaurantes({ all: true }).then((r) => r.items));
+
+  // Ahora "arranque en frío": vacío en memoria, documento presente.
+  restaurantService.invalidarCatalogo();
+  const items = await restaurantService.listarRestaurantes({ all: true });
+  assert.ok(items.items.length > 0, "debe hidratar la caché desde _catalogo");
+  assert.ok(items.items.some((i) => i.nombre === "Hidrata"));
+});
+
+test("con caché parcial, /restaurants/:id devuelve la ficha completa", async () => {
+  const { seed } = require("./helpers/mockFirebase");
+  seed("restaurants", "r-full", {
+    nombre: "Con Reseñas", uid: "u-x", ciudad: "Barcelona", rating_yelp: 4.5,
+    resenas: [{ usuario: "u1", fecha: "2025-01-01", comentario: "bueno", puntuacion: 5 }],
+    direccion_completa: "Carrer X 1",
+  });
+  restaurantService.invalidarCatalogo();
+  const todos = await restaurantService.listarRestaurantes({ all: true });
+  await restaurantService.regenerarCatalogoMapa(todos.items);
+
+  restaurantService.invalidarCatalogo();
+  await restaurantService.listarRestaurantes({ all: true }); // hidrata desde _catalogo (parcial)
+
+  const ficha = await restaurantService.obtenerRestaurante("r-full");
+  assert.ok(Array.isArray(ficha.resenas) && ficha.resenas.length === 1, "la ficha debe traer reseñas");
+  assert.equal(ficha.direccion_completa, "Carrer X 1");
+});
+
+test("el TTL del catálogo es de 15 minutos", () => {
+  const { env } = require("../src/config/env");
+  assert.ok(env.CATALOG_CACHE_TTL_MS >= 900000, "el TTL debe ser de al menos 15 min");
+});
+
+test("el panel de admin no lee colecciones enteras y se cachea", async () => {
+  const dashboardService = require("../src/modules/dashboard/service");
+  dashboardService.invalidarPanelAdmin();
+
+  for (let i = 0; i < 5; i++) seed("usuarios", `u-${i}`, { uid: `u-${i}`, tipo: "cliente", email: `u${i}@t.local` });
+  for (let i = 0; i < 5; i++) seed("reservas", `r-${i}`, { uid: "u-1", estado: "completada", fecha: "2027-01-01", createdAt: new Date(), comensales: 2 });
+  for (let i = 0; i < 3; i++) seed("tickets", `t-${i}`, { uid: "u-1", totalPagado: 20, importeComision: 2, createdAt: new Date() });
+
+  const res = await request(app).get("/v1/dashboard/admin").set("Authorization", `Bearer ${tokens.admin}`);
+  assert.equal(res.status, 200, JSON.stringify(res.body).slice(0, 200));
+
+  // Los totales deben ser exactos (vienen de count(), no del array truncado).
+  // seedBase() ya deja 4 usuarios, y añadimos 5 más.
+  assert.equal(res.body.stats.totalUsuarios, 9);
+  assert.equal(res.body.stats.totalReservas, 5);
+  assert.equal(typeof res.body.stats.totalFacturacion, "number");
+  dashboardService.invalidarPanelAdmin();
+});
+
 test("dashboard: my-restaurant devuelve el restaurante completo cuando SÍ tiene", async () => {
   seed("restaurants", "r-mio", {
     nombre: "Mi Restaurante", uid: "u-emp", email: "emp@test.local", ciudad: "Barcelona",

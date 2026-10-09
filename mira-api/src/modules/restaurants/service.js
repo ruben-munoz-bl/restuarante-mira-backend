@@ -41,15 +41,29 @@ async function catalogo() {
   cache.refrescando = true;
   inflight = (async () => {
     stats.misses += 1;
+
+    // PRIMERO: hidratar desde el documento _catalogo (1 lectura). Antes esto
+    // solo se usaba para el mapa, así que un arranque en frío acababa leyendo
+    // los 700 restaurantes sueltos aunque el documento ya existiera.
+    const doc = await leerCatalogoMapa();
+    if (doc && Array.isArray(doc.restaurantes) && doc.restaurantes.length) {
+      const items = doc.restaurantes.map((r) => ({ ...r, id: r.id || r._id }));
+      cache = { at: Date.now(), items, byId: new Map(items.map((r) => [r.id, r])), refrescando: false, parcial: true };
+      stats.cargas += 1;
+      logger.info({ total: items.length, fuente: "_catalogo" }, "restaurants cache hidratada del documento");
+      return items;
+    }
+
+    // Sin documento: carga completa (solo la primera vez o tras un borrado).
     const snap = await db.collection("restaurants").get();
     // _catalogo es un documento técnico, no un restaurante.
     const items = snap.docs
-      .filter((doc) => doc.id !== DOC_CATALOGO)
-      .map((doc) => mapearDoc(doc.id, doc.data()));
+      .filter((doc2) => doc2.id !== DOC_CATALOGO)
+      .map((doc2) => mapearDoc(doc2.id, doc2.data()));
     const byId = new Map(items.map((r) => [r.id, r]));
-    cache = { at: Date.now(), items, byId, refrescando: false };
+    cache = { at: Date.now(), items, byId, refrescando: false, parcial: false };
     stats.cargas += 1;
-    logger.info({ total: items.length }, "restaurants cache cargada");
+    logger.info({ total: items.length, fuente: "firestore" }, "restaurants cache cargada");
     return items;
   })().finally(() => {
     inflight = null;
@@ -66,7 +80,32 @@ async function catalogo() {
 const DOC_CATALOGO = "_catalogo";
 const MAX_BYTES_CATALOGO = 800 * 1024; // margen sobre el límite de 1 MiB de Firestore
 
+// Lo que ve el frontend en /mapa: 8 campos, ~198 KB para 700 restaurantes.
 const CAMPOS_MAPA = ["id", "nombre", "coordenadas", "rating_yelp", "precio", "categorias", "imagen_url", "ciudad"];
+
+// Lo que se guarda en el documento _catalogo. Son los mismos + lo que el
+// backend necesita para NO releer el restaurante suelto en cada búsqueda
+// (filtro por zona/dirección y cálculo del aforo). Sin reseñas ni descripciones.
+function versionInterna(r) {
+  return {
+    id: r.id,
+    nombre: r.nombre,
+    coordenadas: r.coordenadas || null,
+    rating_yelp: typeof r.rating_yelp === "number" ? r.rating_yelp : null,
+    total_resenas_yelp: typeof r.total_resenas_yelp === "number" ? r.total_resenas_yelp : null,
+    precio: r.precio || null,
+    categorias: Array.isArray(r.categorias) ? r.categorias.slice(0, 8) : [],
+    imagen_url: r.imagen_url || null,
+    ciudad: r.ciudad || null,
+    zona_busqueda: r.zona_busqueda || null,
+    direccion_completa: r.direccion_completa || r.direccion || null,
+    telefono: r.telefono || null,
+    uid: r.uid || null,
+    email: r.email || null,
+    activo: r.activo !== false,
+    maxReservasPorHora: typeof r.maxReservasPorHora === "number" ? r.maxReservasPorHora : null,
+  };
+}
 
 function versionMapa(r) {
   return {
@@ -81,7 +120,7 @@ function versionMapa(r) {
   };
 }
 
-/** Devuelve la versión ligera del catálogo, o null si aún no se ha generado. */
+/** Devuelve el catálogo ligero guardado, o null si aún no se ha generado. */
 async function leerCatalogoMapa() {
   try {
     const snap = await db.collection("restaurants").doc(DOC_CATALOGO).get();
@@ -102,7 +141,7 @@ async function leerCatalogoMapa() {
  */
 async function regenerarCatalogoMapa(items) {
   if (!items || !items.length) return false;
-  const restaurantes = items.map(versionMapa);
+  const restaurantes = items.map(versionInterna);
   const doc = {
     _tipo: "catalogo",
     version: CAMPOS_MAPA,
@@ -302,10 +341,23 @@ async function contarRestaurantes() {
 }
 
 async function obtenerRestaurante(id) {
-  // Primero caché (0 lecturas); si no está, una sola lectura al doc.
+  // Si la caché está hidratada desde _catalogo (parcial), la ficha no trae
+  // reseñas ni campos pesados: hay que leer el documento real (1 lectura) para
+  // devolver el detalle completo que espera el frontend.
   if (cache.byId && cache.byId.has(id)) {
-    stats.aciertos += 1;
-    return cache.byId.get(id);
+    const cached = cache.byId.get(id);
+    if (!cache.parcial) {
+      stats.aciertos += 1;
+      return cached;
+    }
+    const doc = await db.collection("restaurants").doc(id).get();
+    if (doc.exists) {
+      const item = mapearDoc(doc.id, doc.data());
+      cache.byId.set(id, item);
+      stats.aciertos += 1;
+      return item;
+    }
+    return cached;
   }
   const doc = await db.collection("restaurants").doc(id).get();
   if (!doc.exists) {

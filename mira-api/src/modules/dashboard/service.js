@@ -267,21 +267,65 @@ async function getMyRestaurant(uid, restaurantIdOverride, rol = null) {
   return { restaurante, finanzas, ...agg };
 }
 
+const CACHE_PANEL_MS = Number(process.env.DASHBOARD_CACHE_MS) || 90000;
+let cachePanel = { at: 0, data: null, inflight: null };
+
 async function getAdminDashboard() {
-  const [usersSnap, reservasSnap, ticketsSnap, promosSnap] = await Promise.all([
-    db.collection("usuarios").get(),
-    db.collection("reservas").orderBy("createdAt", "desc").limit(2000).get(),
-    db.collection("tickets").orderBy("createdAt", "desc").limit(2000).get(),
-    db.collection("promociones").get(),
+  // El admin refresca el panel constantemente mientras lo mira. Servir el
+  // último resultado durante 90 s evita recalcular (y releer) en cada F5.
+  const ahora = Date.now();
+  if (cachePanel.data && ahora - cachePanel.at < CACHE_PANEL_MS) {
+    return cachePanel.data;
+  }
+  if (cachePanel.inflight) return cachePanel.inflight;
+
+  cachePanel.inflight = calcularAdminDashboard()
+    .then((data) => {
+      cachePanel = { at: Date.now(), data, inflight: null };
+      return data;
+    })
+    .catch((err) => {
+      cachePanel.inflight = null;
+      throw err;
+    });
+  return cachePanel.inflight;
+}
+
+function invalidarPanelAdmin() {
+  cachePanel = { at: 0, data: null, inflight: null };
+}
+
+async function calcularAdminDashboard() {
+  // Coste de lecturas por carga del panel:
+  //  - usuarios y promociones: count() = 1 lectura cada uno (antes se leía la
+  //    colección ENTERA solo para contar).
+  //  - reservas y tickets: 500 en vez de 2000 (las métricas del panel son de
+  //    los últimos días; los totales salen de count(), no del array).
+  const LIMITE_PANEL = 500;
+  const [usersTotal, usuariosNoAdmin, reservasTotal, promosTotal, promosActivas, reservasSnap, ticketsSnap] = await Promise.all([
+    db.collection("usuarios").count().get(),
+    db.collection("usuarios").where("tipo", "!=", "admin").count().get().catch(() => null),
+    db.collection("reservas").count().get(),
+    db.collection("promociones").count().get(),
+    db.collection("promociones").where("estado", "==", "activa").count().get().catch(() => null),
+    db.collection("reservas").orderBy("createdAt", "desc").limit(LIMITE_PANEL).get(),
+    db.collection("tickets").orderBy("createdAt", "desc").limit(LIMITE_PANEL).get(),
   ]);
 
-  const users = usersSnap.docs.map((d) => ({ uid: d.id, ...d.data() }));
+  const totalUsuariosReal = usersTotal.data().count;
+  const usuariosActivosReal = usuariosNoAdmin ? usuariosNoAdmin.data().count : totalUsuariosReal;
+  const totalReservasReal = reservasTotal.data().count;
+  const totalPromocionesReal = promosTotal.data().count;
+  const promosActivasReal = promosActivas ? promosActivas.data().count : 0;
+
   const reservas = reservasSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
   const tickets = ticketsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-  const totalUsuarios = usersSnap.size;
-  const usuariosActivos = users.filter((u) => u.tipo !== "admin").length;
-  const totalReservas = reservas.length;
+  // Los totales vienen de count() (exactos, sin leer los documentos).
+  // Los desgloses (por estado, por día) se calculan sobre la ventana reciente.
+  const totalUsuarios = totalUsuariosReal;
+  const usuariosActivos = usuariosActivosReal;
+  const totalReservas = totalReservasReal;
   const reservasCompletadas = reservas.filter((r) => r.estado === "completada").length;
   const reservasCanceladas = reservas.filter((r) => r.estado === "cancelada").length;
   const reservasNoShow = reservas.filter((r) => r.estado === "no_show").length;
@@ -325,8 +369,8 @@ async function getAdminDashboard() {
       reservasNoShow,
       totalFacturacion: Math.round(totalFacturacion * 100) / 100,
       totalComisiones: Math.round(totalComisiones * 100) / 100,
-      totalPromociones: promosSnap.size,
-      promosActivas: promosSnap.docs.filter((d) => d.data().estado === "activa").length,
+      totalPromociones: totalPromocionesReal,
+      promosActivas: promosActivasReal,
     },
     reservasPorRestaurante,
     facturacionPorMes,
@@ -763,6 +807,7 @@ module.exports = {
   listMyRestaurants,
   getMyRestaurant,
   getAdminDashboard,
+  invalidarPanelAdmin,
   getOpsOverview,
   getReservasGlobales,
   updateRestaurant,
