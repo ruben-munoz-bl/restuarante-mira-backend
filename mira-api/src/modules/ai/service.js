@@ -33,7 +33,9 @@ async function phrase({ provider, system, content }) {
   }
 }
 
-async function runConfirmed({ message, confirmId, user, system, hash, provider, requestId }) {
+const IDIOMA_CONFIRMACION = { es: "español", ca: "catalán", en: "inglés" };
+
+async function runConfirmed({ message, confirmId, user, system, hash, provider, requestId, lang }) {
   const t0 = Date.now();
 
   if (!user) {
@@ -82,7 +84,7 @@ async function runConfirmed({ message, confirmId, user, system, hash, provider, 
     const phrased = await phrase({
       provider,
       system,
-      content: `El usuario ha confirmado la operación "${stored.tool}" (${stored.summary}). Resultado: ${truncate(result)}. Mensaje del usuario: "${truncate(message)}". Informa del resultado en máximo 2 frases, en español, sin inventar datos.`,
+      content: `El usuario ha confirmado la operación "${stored.tool}" (${stored.summary}). Resultado: ${truncate(result)}. Mensaje del usuario: "${truncate(message)}". Informa del resultado en máximo 2 frases, en ${IDIOMA_CONFIRMACION[lang] || IDIOMA_CONFIRMACION.es}, sin inventar datos.`,
     });
     reply = phrased.text;
     model = phrased.model;
@@ -101,8 +103,8 @@ async function runConfirmed({ message, confirmId, user, system, hash, provider, 
   return { reply, actions, needsConfirm: undefined, provider: provider.name, model, promptHash: hash };
 }
 
-async function runAgent({ message, history = [], confirmId, user = null, requestId }) {
-  const { prompt: system, hash } = buildSystemPrompt(user);
+async function runAgent({ message, history = [], confirmId, user = null, requestId, lang = "es" }) {
+  const { prompt: system, hash } = buildSystemPrompt(user, lang);
 
   let provider = null;
   try {
@@ -124,7 +126,7 @@ async function runAgent({ message, history = [], confirmId, user = null, request
   }
 
   if (confirmId) {
-    return runConfirmed({ message, confirmId, user, system, hash, provider, requestId });
+    return runConfirmed({ message, confirmId, user, system, hash, provider, requestId, lang });
   }
 
   const t0 = Date.now();

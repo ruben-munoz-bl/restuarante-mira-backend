@@ -14,7 +14,7 @@ const { seedBase, store, tokens } = mockFirebase;
 const AGENT = "/v1/ai/agent";
 // Snapshot del prompt (CONTEXT + GUARDRAILS). Si cambia un .md, este test falla a propósito:
 // revisa el cambio y actualiza la constante.
-const PROMPT_HASH_SNAPSHOT = "e2185ae607d3ce4a";
+const PROMPT_HASH_SNAPSHOT = "8368b72b0ef163cf";
 
 function post(body, token) {
   const req = request(app).post(AGENT);
@@ -478,4 +478,19 @@ test("rate limit: 10/min y 429 en la 11ª", async () => {
   const res = await post({ message: "una más" });
   assert.equal(res.status, 429);
   assert.equal(res.body.error, "RATE_LIMITED");
+});
+
+test("idioma: el prompt pide responder en el idioma de la web", () => {
+  assert.match(buildSystemPrompt(null, "ca").prompt, /Responde SIEMPRE en catalán/);
+  assert.match(buildSystemPrompt(null, "en").prompt, /Responde SIEMPRE en inglés/);
+  assert.match(buildSystemPrompt(null).prompt, /Responde SIEMPRE en español/);
+  assert.match(buildSystemPrompt(null, "xx").prompt, /Responde SIEMPRE en español/);
+});
+
+test("idioma: lang inválido → 400; válido se acepta", async () => {
+  geminiMock.setGeminiHandler(() => ({ text: "Hola" }));
+  const mal = await request(app).post(AGENT).send({ message: "hola", lang: "fr" });
+  assert.equal(mal.status, 400);
+  const bien = await request(app).post(AGENT).send({ message: "hola", lang: "ca" });
+  assert.equal(bien.status, 200);
 });

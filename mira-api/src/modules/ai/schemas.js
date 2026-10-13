@@ -12,6 +12,8 @@ const agentSchema = z.object({
     .max(10)
     .default([]),
   confirmId: z.string().uuid().optional(),
+  // Idioma activo en la web: MIRA responde en él.
+  lang: z.enum(["es", "ca", "en"]).optional(),
 });
 
 module.exports = { agentSchema };
