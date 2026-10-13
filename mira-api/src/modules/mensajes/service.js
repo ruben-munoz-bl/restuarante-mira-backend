@@ -21,4 +21,17 @@ async function marcarLeido(id) {
   return { ok: true };
 }
 
-module.exports = { listarMensajes, contarNoLeidos, marcarLeido };
+async function marcarTodosLeidos(uid) {
+  const snap = await db.collection("mensajes").where("uid", "==", uid).get();
+  const pendientes = snap.docs.filter((d) => d.data().leido !== true);
+  for (let i = 0; i < pendientes.length; i += 450) {
+    const lote = db.batch();
+    for (const d of pendientes.slice(i, i + 450)) {
+      lote.update(db.collection("mensajes").doc(d.id), { leido: true });
+    }
+    await lote.commit();
+  }
+  return { ok: true, actualizados: pendientes.length };
+}
+
+module.exports = { listarMensajes, contarNoLeidos, marcarLeido, marcarTodosLeidos };

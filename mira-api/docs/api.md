@@ -3488,3 +3488,11 @@ y un movimiento individual; el ID de cada reserva evita contabilizarla dos veces
 El frontend construye el enlace `/#/registro?invite=<codigo>` en su propio dominio.
 Despliegue: **backend primero, frontend después**. No es necesario enviar emails:
 el usuario comparte el enlace con el destinatario indicado.
+
+### BUG-011 — marcar todos los mensajes como leídos
+
+`PUT /v1/mensajes/read-all`, autenticado, sin body. Responde
+`{ "ok": true, "actualizados": <n> }`. Solo modifica mensajes del UID del token,
+es idempotente y procesa lotes inferiores al límite de 500 escrituras.
+Después consultar `/v1/mensajes/unread-count` para actualizar los contadores.
+Despliegue: backend primero, frontend después.
