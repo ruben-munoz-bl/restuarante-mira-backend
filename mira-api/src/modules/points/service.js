@@ -206,9 +206,46 @@ async function claimWheelReward(uid, { force = false } = {}) {
   return { puntos: prize.puntos, label: prize.label, nuevoSaldo };
 }
 
-async function reviewPoints(uid) {
-  const { nuevoSaldo } = await addPuntos(uid, 20, "resena", "Reseña reseña");
-  return { puntos: 20, nuevoSaldo };
+const PUNTOS_RESENA = 20;
+
+/**
+ * Puntos por reseña. Antes premiaba a cualquiera que llamara al endpoint, sin reseña.
+ * Ahora exige una reseña existente del propio usuario y premia una sola vez por
+ * usuario y restaurante (el id del movimiento es fijo, así reintentar o escribir
+ * varias reseñas del mismo sitio no suma más).
+ */
+async function reviewPoints(uid, reviewId) {
+  if (!reviewId) throw Object.assign(new Error("Falta la reseña"), { status: 400, code: "VALIDATION_ERROR" });
+  const reviewRef = db.collection("resenas").doc(String(reviewId));
+  const userRef = db.collection("usuarios").doc(uid);
+  return db.runTransaction(async (tx) => {
+    const reviewSnap = await tx.get(reviewRef);
+    if (!reviewSnap.exists) throw Object.assign(new Error("Reseña no encontrada"), { status: 404, code: "NOT_FOUND" });
+    const review = reviewSnap.data();
+    if (review.usuarioId !== uid) throw Object.assign(new Error("La reseña no es tuya"), { status: 403, code: "FORBIDDEN" });
+    const movRef = db.collection("puntos_movimientos").doc(`resena_${uid}_${review.restauranteId}`);
+    const movSnap = await tx.get(movRef);
+    const userSnap = await tx.get(userRef);
+    if (!userSnap.exists) throw new Error("Usuario no encontrado");
+    const data = userSnap.data();
+    if (movSnap.exists) return { puntos: 0, nuevoSaldo: data.saldoPuntos || 0, yaOtorgados: true };
+    const nuevoSaldo = (data.saldoPuntos || 0) + PUNTOS_RESENA;
+    tx.update(userRef, {
+      saldoPuntos: nuevoSaldo,
+      totalAcumulado: (data.totalAcumulado || 0) + PUNTOS_RESENA,
+      updatedAt: new Date(),
+    });
+    tx.set(movRef, {
+      uid,
+      tipo: "resena",
+      puntos: PUNTOS_RESENA,
+      descripcion: "Reseña",
+      reviewId: reviewRef.id,
+      restauranteId: review.restauranteId,
+      createdAt: new Date(),
+    });
+    return { puntos: PUNTOS_RESENA, nuevoSaldo };
+  });
 }
 
 const COLECCION_DESCUENTOS = "descuentos";

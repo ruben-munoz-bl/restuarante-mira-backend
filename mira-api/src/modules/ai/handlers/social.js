@@ -31,7 +31,12 @@ module.exports = {
       puntuacion,
       comentario,
     });
-    return { id, reviewId: id };
+    // Mismos puntos que al reseñar desde la web (antes por aquí no se daban).
+    let puntos = null;
+    try {
+      puntos = await require("../../points/service").reviewPoints(ctx.user.uid, id);
+    } catch { /* puntos best-effort, como en POST /v1/reviews */ }
+    return { id, reviewId: id, ...(puntos || {}) };
   },
 
   likeReview: async (ctx, args) => {

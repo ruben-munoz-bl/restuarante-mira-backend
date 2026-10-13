@@ -913,28 +913,18 @@ curl -X POST "$BASE/v1/points/discount/claim" \
 | Campo | Valor |
 |---|---|
 | Método / Ruta | `POST /v1/points/review` |
-| Fichero | `routes.js:129` |
+| Fichero | `points/routes.js` |
 | Auth | `verifyFirebaseAuth` |
 | Roles | — |
-| Body | — |
-| Respuesta | `201 { puntos, nuevoSaldo }` |
-| Errores | 500 `INTERNAL_ERROR` |
+| Body | `{ reviewId }` (obligatorio) |
+| Respuesta | `201 { puntos: 20, nuevoSaldo }` si se abonan; `200 { puntos: 0, nuevoSaldo, yaOtorgados: true }` si ya se dieron |
+| Errores | 400 `VALIDATION_ERROR` (sin `reviewId`); 404 `NOT_FOUND` (reseña inexistente); 403 `FORBIDDEN` (reseña de otro usuario) |
 
-`reviewPoints(uid)` (`service.js:200`) **abona 20 puntos fijos** (`PUNTOS_REVIEW`) con `tipo: "resena"` y descripción `"Reseña reseña"`. No valida que exista una reseña: es un endpoint de concesión de puntos directo. El módulo de reviews también llama a esta función tras crear una reseña, de modo que **crear una reseña y llamar a este endpoint conceden los mismos 20 puntos** (`no determinable con el código actual` si hay algún control antiabuso; no lo hay en el service).
+`reviewPoints(uid, reviewId)` (`points/service.js`) abona **20 puntos solo por una reseña real del propio usuario y una única vez por usuario y restaurante**. Todo va en una transacción: lee la reseña, comprueba que `usuarioId` es el del token y usa un movimiento con id fijo `resena_{uid}_{restauranteId}` en `puntos_movimientos`. Si ya existe, no suma nada. Así no se pueden obtener puntos sin reseña, ni reintentando, ni escribiendo varias reseñas del mismo restaurante.
 
-```bash
-curl -X POST "$BASE/v1/points/review" -H "Authorization: Bearer $TOKEN"
-```
+`POST /v1/reviews` y la tool de IA `createReview` llaman a esta función tras crear la reseña (best-effort). Este endpoint queda solo como reintento manual; la web y la app no lo usan.
 
-```json
-{ "puntos": 20, "nuevoSaldo": 160 }
-```
-
----
-
-## 7. Usuarios — `/v1/users`
-
-Router: `src/modules/users/routes.js`. Servicio: `src/modules/users/service.js`.
+**Antes (corregido en BUG-111):** el endpoint no tenía body y abonaba 20 puntos a cualquiera que lo llamara, sin reseña.
 
 ### 7.1 `GET /v1/users/me`
 

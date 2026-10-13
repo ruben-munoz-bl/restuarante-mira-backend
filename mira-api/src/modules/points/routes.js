@@ -126,11 +126,13 @@ router.post("/discount/claim", verifyFirebaseAuth, validate(discountClaimSchema)
   }
 });
 
-router.post("/review", verifyFirebaseAuth, async (req, res, next) => {
+// Reintento manual de los puntos de una reseña propia (crear la reseña ya los da).
+router.post("/review", verifyFirebaseAuth, validate(z.object({ reviewId: z.string().min(1).max(200) })), async (req, res, next) => {
   try {
-    const result = await pointsService.reviewPoints(req.user.uid);
-    res.status(201).json(result);
+    const result = await pointsService.reviewPoints(req.user.uid, req.validated.reviewId);
+    res.status(result.puntos > 0 ? 201 : 200).json(result);
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.code, message: err.message });
     next(err);
   }
 });

@@ -27,7 +27,7 @@ router.post("/", verifyFirebaseAuth, validate(crearSchema), async (req, res, nex
     let puntosResult = null;
     try {
       const { reviewPoints } = require("../points/service");
-      puntosResult = await reviewPoints(req.user.uid);
+      puntosResult = await reviewPoints(req.user.uid, id);
     } catch { /* puntos best-effort */ }
     res.status(201).json({ id, reviewId: id, ...puntosResult });
   } catch (err) {
