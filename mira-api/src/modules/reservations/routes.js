@@ -5,6 +5,8 @@ const { validate } = require("../../middlewares/validate");
 const { idempotency } = require("../../middlewares/rateLimit");
 const reservationService = require("./service");
 
+const { documentoDelRestaurante } = require("../../middlewares/ownership");
+const { precioSchema, ticketSchema } = require("../../middlewares/businessSchemas");
 const router = Router();
 
 const crearReservaSchema = z.object({
@@ -76,7 +78,7 @@ router.put("/:id/cancel", verifyFirebaseAuth, async (req, res, next) => {
   }
 });
 
-router.put("/:id/complete", verifyFirebaseAuth, authorize("empresa", "admin"), async (req, res, next) => {
+router.put("/:id/complete", verifyFirebaseAuth, authorize("empresa", "admin"), documentoDelRestaurante("reservas"), validate(precioSchema), async (req, res, next) => {
   try {
     const result = await reservationService.completarReserva(req.params.id, {
       uid: req.user.uid,
@@ -89,7 +91,7 @@ router.put("/:id/complete", verifyFirebaseAuth, authorize("empresa", "admin"), a
   }
 });
 
-router.post("/:id/ticket", verifyFirebaseAuth, authorize("empresa", "admin"), async (req, res, next) => {
+router.post("/:id/ticket", verifyFirebaseAuth, authorize("empresa", "admin"), documentoDelRestaurante("reservas"), validate(ticketSchema), async (req, res, next) => {
   try {
     const result = await reservationService.subirTicket(req.params.id, {
       uid: req.user.uid,

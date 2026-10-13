@@ -5,6 +5,7 @@ const { requestId, requestLogger, errorHandler } = require("./middlewares/errorH
 const { accessLog } = require("./middlewares/accessLog");
 const { middlewareMetricas } = require("./modules/metricas/metricas");
 
+const { rateLimit } = require("./middlewares/rateLimit");
 const app = express();
 
 function jsonReplacer(_key, value) {
@@ -44,6 +45,7 @@ app.use(requestId);
 app.use(middlewareMetricas);
 app.use(requestLogger);
 app.use(accessLog);
+app.use("/v1", rateLimit(60000, 300, (req) => `api:${req.ip}`));
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

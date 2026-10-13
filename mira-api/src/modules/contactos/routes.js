@@ -4,16 +4,17 @@ const { verifyFirebaseAuth, authorize, optionalAuth } = require("../../middlewar
 const { validate } = require("../../middlewares/validate");
 const contactoService = require("./service");
 
+const { rateLimit } = require("../../middlewares/rateLimit");
 const router = Router();
 
 const crearSchema = z.object({
-  nombre: z.string().min(1),
+  nombre: z.string().min(1).max(200),
   email: z.string().email(),
-  motivo: z.string().min(1),
-  mensaje: z.string().min(1),
+  motivo: z.string().min(1).max(200),
+  mensaje: z.string().min(1).max(2000),
 });
 
-router.post("/", optionalAuth, validate(crearSchema), async (req, res, next) => {
+router.post("/", optionalAuth, rateLimit(60000, 20), validate(crearSchema), async (req, res, next) => {
   try {
     const result = await contactoService.crearContacto({
       uid: req.user?.uid || null,

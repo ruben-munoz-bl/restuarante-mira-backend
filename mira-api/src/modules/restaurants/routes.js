@@ -1,6 +1,6 @@
 const { Router } = require("express");
 const { z } = require("zod");
-const { verifyFirebaseAuth, optionalAuth } = require("../../middlewares/verifyFirebaseAuth");
+const { verifyFirebaseAuth, authorize, optionalAuth } = require("../../middlewares/verifyFirebaseAuth");
 const { validate } = require("../../middlewares/validate");
 const restaurantService = require("./service");
 const { urlFotoGoogle } = require("./fotoGoogle");
@@ -76,23 +76,10 @@ router.get("/:id", optionalAuth, async (req, res, next) => {
   }
 });
 
-const updateSchema = z.object({
-  nombre: z.string().optional(),
-  direccion: z.string().optional(),
-  telefono: z.string().optional(),
-  email: z.string().email().optional(),
-  horarios: z.any().optional(),
-  activo: z.boolean().optional(),
-  ciudad: z.string().optional(),
-  zona: z.string().optional(),
-  precio: z.string().optional(),
-  cocina: z.string().optional(),
-  descripcion: z.string().optional(),
-  comisionPct: z.number().optional(),
-  maxReservasPorHora: z.number().optional(),
-});
+const { restaurantePropio, protegerComision } = require("../../middlewares/ownership");
+const { restaurantUpdateSchema: updateSchema } = require("../../middlewares/businessSchemas");
 
-router.put("/:id", verifyFirebaseAuth, validate(updateSchema), async (req, res, next) => {
+router.put("/:id", verifyFirebaseAuth, authorize("empresa", "admin"), restaurantePropio(), protegerComision, validate(updateSchema), async (req, res, next) => {
   try {
     const result = await restaurantService.actualizarRestaurante(req.params.id, req.user.uid, req.validated);
     res.json(result);

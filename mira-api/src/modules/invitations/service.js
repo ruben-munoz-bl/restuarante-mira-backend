@@ -40,86 +40,78 @@ async function aceptarInvitacion(codigo, uid, userEmail) {
   const inviteSnap = await db.collection("invitaciones").where("codigo", "==", codigo).limit(1).get();
   if (inviteSnap.empty) throw new Error("Código no válido");
   const inviteDoc = inviteSnap.docs[0];
-  const inv = inviteDoc.data();
-
-  if (inv.emailInvitado && userEmail && inv.emailInvitado.toLowerCase() !== String(userEmail).toLowerCase()) {
-    throw new Error("Este código no es para ti");
-  }
-  if (inv.estado !== "pendiente") throw new Error("Invitación ya usada");
-
-  await db.collection("invitaciones").doc(inviteDoc.id).update({
-    estado: "esperando_2_reservas",
-    aceptadaPor: uid,
-    aceptadaEn: new Date(),
-    updatedAt: new Date(),
+  const resultado = await db.runTransaction(async (tx) => {
+    const actual = await tx.get(db.collection("invitaciones").doc(inviteDoc.id));
+    const inv = actual.data();
+    const aceptacionRef = db.collection("invitaciones_aceptadas").doc(uid);
+    const previa = await tx.get(aceptacionRef);
+    if (!userEmail || inv.creadorUid === uid ||
+        inv.emailInvitado.toLowerCase() !== String(userEmail).toLowerCase()) {
+      throw new Error("Este código no es para ti");
+    }
+    if (inv.aceptadaPor === uid && inv.estado !== "pendiente") {
+      return { ok: true, creadorUid: inv.creadorUid, estado: inv.estado };
+    }
+    if (inv.estado !== "pendiente" || previa.exists) throw new Error("Invitación ya usada");
+    tx.update(db.collection("invitaciones").doc(inviteDoc.id), {
+      estado: "esperando_2_reservas", aceptadaPor: uid,
+      aceptadaEn: new Date(), updatedAt: new Date(),
+    });
+    tx.set(aceptacionRef, { invitacionId: inviteDoc.id, createdAt: new Date() });
+    return { ok: true, creadorUid: inv.creadorUid, estado: "esperando_2_reservas" };
   });
-
-  logger.info({ inviteId: inviteDoc.id, uid }, "Invitation accepted (waiting for 2 reservations)");
-  return { ok: true, creadorUid: inv.creadorUid, estado: "esperando_2_reservas" };
+  return resultado;
 }
 
-async function onInvitadoReservaCompletada(invitadoUid) {
-  const inviteSnap = await db.collection("invitaciones")
+async function onInvitadoReservaCompletada(invitadoUid, reservaId) {
+  if (!reservaId) return;
+  const snap = await db.collection("invitaciones")
     .where("aceptadaPor", "==", invitadoUid)
-    .where("estado", "==", "esperando_2_reservas")
-    .limit(1)
-    .get();
-
-  if (inviteSnap.empty) return;
-
-  const inviteDoc = inviteSnap.docs[0];
-  const inv = inviteDoc.data();
-  const nuevasReservas = (inv.reservasAmigo || 0) + 1;
-
-  if (nuevasReservas >= INVITACIONES_RESERVAS_REQUERIDAS) {
-    await db.runTransaction(async (tx) => {
-      // Lecturas antes de cualquier escritura (regla de Firestore): si no,
-      // tx.get() lanza "read after write" y la invitación nunca se premia.
-      const userRef = db.collection("usuarios").doc(inv.creadorUid);
-      const userSnap = await tx.get(userRef);
-
-      tx.update(db.collection("invitaciones").doc(inviteDoc.id), {
-        reservasAmigo: nuevasReservas,
-        estado: "aceptada",
-        updatedAt: new Date(),
-      });
-
-      if (!userSnap.exists) return;
-      const userData = userSnap.data();
-      const nuevoSaldo = (userData.saldoPuntos || 0) + PUNTOS_INVITACION;
-
-      tx.update(userRef, {
-        saldoPuntos: nuevoSaldo,
-        totalAcumulado: (userData.totalAcumulado || 0) + PUNTOS_INVITACION,
-        updatedAt: new Date(),
-      });
-
-      const movRef = db.collection("puntos_movimientos").doc();
-      tx.set(movRef, {
-        uid: inv.creadorUid,
-        tipo: "invitacion",
-        puntos: PUNTOS_INVITACION,
-        descripcion: "Invitación completada (2 reservas del amigo)",
-        createdAt: new Date(),
-      });
-    });
-
-    logger.info({ creadorUid: inv.creadorUid, invitadoUid, puntos: PUNTOS_INVITACION }, "Invitation reward granted");
-  } else {
-    await db.collection("invitaciones").doc(inviteDoc.id).update({
+    .where("estado", "==", "esperando_2_reservas").limit(1).get();
+  if (snap.empty) return;
+  const inviteRef = db.collection("invitaciones").doc(snap.docs[0].id);
+  await db.runTransaction(async (tx) => {
+    const inviteSnap = await tx.get(inviteRef);
+    const inv = inviteSnap.data();
+    if (!inv || inv.estado !== "esperando_2_reservas") return;
+    const contadas = inv.reservasContadas || [];
+    if (contadas.includes(reservaId)) return;
+    const nuevasReservas = (inv.reservasAmigo || 0) + 1;
+    const premiar = nuevasReservas >= INVITACIONES_RESERVAS_REQUERIDAS;
+    const usuarios = [];
+    if (premiar) {
+      for (const uid of [inv.creadorUid, invitadoUid]) {
+        const ref = db.collection("usuarios").doc(uid);
+        const user = await tx.get(ref);
+        if (!user.exists) throw new Error("Usuario de invitación no encontrado");
+        usuarios.push({ uid, ref, datos: user.data() });
+      }
+    }
+    tx.update(inviteRef, {
       reservasAmigo: nuevasReservas,
+      reservasContadas: [...contadas, reservaId],
+      estado: premiar ? "aceptada" : "esperando_2_reservas",
+      updatedAt: new Date(),
     });
-  }
+    for (const { uid, ref, datos } of usuarios) {
+      tx.update(ref, {
+        saldoPuntos: (datos.saldoPuntos || 0) + PUNTOS_INVITACION,
+        totalAcumulado: (datos.totalAcumulado || 0) + PUNTOS_INVITACION,
+        updatedAt: new Date(),
+      });
+      tx.set(db.collection("puntos_movimientos").doc(), {
+        uid, tipo: "invitacion", puntos: PUNTOS_INVITACION,
+        descripcion: "Invitación completada (2 reservas del amigo)", createdAt: new Date(),
+      });
+    }
+  });
 }
 
 async function getMyInvites(uid) {
-  const [enviadasSnap, aceptadasSnap] = await Promise.all([
-    db.collection("invitaciones").where("creadorUid", "==", uid).orderBy("createdAt", "desc").get(),
-    db.collection("invitaciones").where("aceptadaPor", "==", uid).get(),
-  ]);
+  const enviadasSnap = await db.collection("invitaciones").where("creadorUid", "==", uid).orderBy("createdAt", "desc").get();
   const enviadas = enviadasSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  const aceptadas = aceptadasSnap.size;
-  return { enviadas, aceptadas, invitaciones: enviadas };
+  const aceptadas = enviadas.filter((inv) => inv.estado === "aceptada").length;
+  return { enviadas, aceptadas, puntosTotales: aceptadas * PUNTOS_INVITACION, invitaciones: enviadas };
 }
 
 module.exports = { crearInvitacion, aceptarInvitacion, onInvitadoReservaCompletada, getMyInvites };

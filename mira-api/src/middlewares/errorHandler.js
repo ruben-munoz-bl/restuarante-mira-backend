@@ -12,7 +12,7 @@ function errorHandler(err, req, res, _next) {
   const isServerError = status >= 500;
   res.status(status).json({
     error: err.code || "INTERNAL_ERROR",
-    message: process.env.NODE_ENV === "production" && isServerError ? "Error interno" : err.message,
+    message: isServerError ? "Error interno" : err.message,
     requestId,
   });
 }

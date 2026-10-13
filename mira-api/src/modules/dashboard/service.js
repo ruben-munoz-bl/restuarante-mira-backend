@@ -259,20 +259,8 @@ async function getMyRestaurant(uid, restaurantIdOverride, rol = null) {
   const data = restDoc.data() || {};
   // Con ?restaurantId= no se comprueba la pertenencia: cualquiera podría ver
   // el panel de otro. Los admins sí pueden (gestionan la plataforma).
-  if (restaurantIdOverride && rol !== "admin") {
-    const userSnap = await db.collection("usuarios").doc(uid).get().catch(() => null);
-    const userData = userSnap && userSnap.exists ? userSnap.data() : {};
-    const suyos = new Set([
-      ...(Array.isArray(userData.restaurantIds) ? userData.restaurantIds : []),
-      userData.restaurantId,
-    ].filter(Boolean));
-    const esDueño = data.uid === uid || (!!data.email && !!userData.email && data.email === userData.email);
-    if (!suyos.has(restaurantId) && !esDueño) {
-      const err = new Error("No tienes permiso para ver el panel de ese restaurante");
-      err.status = 403;
-      err.code = "FORBIDDEN";
-      throw err;
-    }
+  if (restaurantIdOverride) {
+    await require("../../middlewares/ownership").comprobarRestaurante(restaurantId, { uid, role: rol });
   }
   const restaurante = { id: restDoc.id, ...data };
 

@@ -22,9 +22,17 @@ router.get("/unread-count", verifyFirebaseAuth, async (req, res, next) => {
   }
 });
 
+router.put("/read-all", verifyFirebaseAuth, async (req, res, next) => {
+  try {
+    res.json(await mensajeService.marcarTodosLeidos(req.user.uid));
+  } catch (err) {
+    next(err);
+  }
+});
+
 router.put("/:id/read", verifyFirebaseAuth, async (req, res, next) => {
   try {
-    const result = await mensajeService.marcarLeido(req.params.id);
+    const result = await mensajeService.marcarLeido(req.params.id, req.user.uid);
     res.json(result);
   } catch (err) {
     next(err);
