@@ -3533,3 +3533,16 @@ Las reglas de Firestore pasan a denegar todo acceso directo desde SDK cliente,
 porque web y móvil acceden a los datos mediante mira-api. Admin SDK no depende de
 estas reglas. Configurar/probar previamente el emulador de reglas y comprobar el
 flujo en staging; este cambio no se ha publicado desde Codex.
+
+### BUG-106 — tickets completos para documentos del restaurante
+
+Las respuestas de `/v1/dashboard/my-restaurant` y `/v1/dashboard/restaurant/:id`
+añaden `tickets`, array completo de los tickets del restaurante autorizado.
+`ticketsRecientes` sigue siendo la vista previa de 20 registros. La consulta de
+tickets ya no trunca a 500; CSV/factura usan `tickets`, después de filtrar el periodo.
+El rol/pertenencia existentes siguen vigentes; no se exponen tickets de otros locales.
+El dataset completo se devuelve en una respuesta para conservar el cambio mínimo;
+con volúmenes muy elevados convendrá añadir paginación por cursor.
+Despliegue: **backend primero, frontend después**. El nuevo frontend muestra error
+si una respuesta antigua no incluye el dataset completo, evitando un documento
+silenciosamente truncado. No requiere nuevas variables de Render/Vercel.
