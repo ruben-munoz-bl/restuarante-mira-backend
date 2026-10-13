@@ -438,6 +438,11 @@ por SSE a los suscriptores.
 | `mensaje` | `String` (máx. 2000, validado en reglas) | `contactos/service.js:10` |
 | `estado` | `String` (`pendiente`\|`resuelta`) | `contactos/service.js:11`, `:34` |
 | `creado` | `Timestamp` | `contactos/service.js:12` |
+| `propuestaResolucion` | `String` (1–4000) — solo en resueltas | `contactos/service.js` (`resolverIncidencia`) |
+| `solucion` | `String` (1–4000) — solo en resueltas | `contactos/service.js` (`resolverIncidencia`) |
+| `encargado` | `String` (1–200) — solo en resueltas | `contactos/service.js` (`resolverIncidencia`) |
+
+Al pasar a `resuelta` se guardan siempre los tres campos de resolución en la misma escritura (ver `api.md` §16.4). Las incidencias resueltas antes de este cambio no los tienen.
 
 ### 2.17 `fraudFlags` — marcas de fraude
 

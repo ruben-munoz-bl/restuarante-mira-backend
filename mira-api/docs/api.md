@@ -2135,18 +2135,32 @@ curl "$BASE/v1/contactos/pending" -H "Authorization: Bearer $TOKEN"
 | Campo | Valor |
 |---|---|
 | Método / Ruta | `PUT /v1/contactos/:id/resolve` |
-| Fichero | `routes.js:46` |
+| Fichero | `routes.js` (`resolverSchema`) |
 | Auth | `verifyFirebaseAuth` |
 | Roles | `admin` |
 | Path | `id` |
-| Body | — |
+| Body | `{ propuestaResolucion, solucion, encargado }` — los tres obligatorios |
 | Respuesta | `200 {"ok": true}` |
-| Errores | 403 `FORBIDDEN`; 500 `INTERNAL_ERROR` |
+| Errores | 400 `VALIDATION_ERROR` (falta un campo, está vacío o supera el límite); 403 `FORBIDDEN`; 500 `INTERNAL_ERROR` |
 
-`resolverIncidencia` (`service.js:33`) hace `update({ estado: "resuelta" })`. Con un id inexistente, Firestore lanza y acaba en 500.
+Resolver una incidencia ya **no es un solo clic**: el panel admin abre un popup que pide los tres campos y solo al confirmar llama a este endpoint.
+
+| Campo | Tipo | Límite | Significado |
+|---|---|---|---|
+| `propuestaResolucion` | string | 1–4000 | Qué se propone hacer con la incidencia |
+| `solucion` | string | 1–4000 | Qué se ha hecho finalmente |
+| `encargado` | string | 1–200 | Persona responsable de la resolución |
+
+Los valores se recortan (`trim`); solo espacios cuenta como vacío. `resolverIncidencia` (`service.js`) los valida de nuevo y guarda en **una sola actualización**: `update({ propuestaResolucion, solucion, encargado, estado: "resuelta" })`. Con un id inexistente, Firestore lanza y acaba en 500.
+
+La herramienta de IA `resolveContacto` (`ai/tools.js`, deshabilitada) exige los mismos tres campos.
+
+**Despliegue:** frontend y backend van acoplados. Un frontend anterior al cambio no envía body y recibiría 400; desplegar siempre el frontend antes o a la vez.
 
 ```bash
-curl -X PUT "$BASE/v1/contactos/ct_1/resolve" -H "Authorization: Bearer $TOKEN"
+curl -X PUT "$BASE/v1/contactos/ct_1/resolve" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"propuestaResolucion":"Llamar al cliente","solucion":"Abono del 10 %","encargado":"Ana"}'
 ```
 
 ```json
