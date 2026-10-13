@@ -28,7 +28,7 @@ TOKEN="<JWT ID token de Firebase>"
 En este orden, para todas las peticiones:
 
 1. `helmet()` — cabeceras de seguridad.
-2. `cors({ origin })` — función `isAllowedOrigin` (`src/app.js:30`). Permite siempre las peticiones **sin** cabecera `Origin`; acepta `http://localhost:5173`, `http://localhost:4173` y cualquier host `*.vercel.app` / `vercel.app`.
+2. `cors({ origin })` — lista exacta de `CORS_ALLOWED_ORIGINS`; por defecto solo localhost/127.0.0.1 en puertos 5173 y 4173. Sin cabecera Origin se permite el cliente HTTP; no hay comodines Vercel. Ver BUG-113 al final.
 3. `express.json()` — cuerpo JSON.
 4. `requestId` (`src/middlewares/errorHandler.js:24`) — usa la cabecera `x-request-id` del cliente o genera `req_<ts>_<rand>`, y responde siempre con la cabecera `X-Request-Id`.
 5. `middlewareMetricas` (`src/modules/metricas/metricas.js:53`) — instrumentación en memoria. **Excluye** `/health`, `/v1/metricas/*` y cualquier ruta que acabe en `/stream`.
@@ -86,10 +86,10 @@ Errores:
 `idempotency` (mismo fichero):
 
 - Lee la cabecera `Idempotency-Key`. Si no está, no hace nada.
-- Busca el documento `{uid|anonymous}_{key}` en la colección `idempotencyKeys`.
-- Si existe y su `status` es 2xx, **re-sirve la respuesta cacheada** tal cual.
+- Busca el SHA-256 de `[uid|anonymous, método, ruta sin query, key]` en `idempotencyKeys`.
+- Si existe con status 2xx y coincide el hash del body validado/canónico, re-sirve la respuesta; si el body difiere, responde `409 IDEMPOTENCY_CONFLICT`.
 - Si existe con status no-2xx, lo borra y continúa (nunca se cachea un error).
-- Si no existe, envuelve `res.json` para persistir `{status, body, createdAt}` en cuanto la respuesta sea 2xx. Antes de guardar pasa el body por `firestoreSafe()` (elimina `undefined`, `NaN`, `Infinity`).
+- Si no existe, envuelve `res.json` para persistir `{status, body, requestHash, createdAt}` en cuanto la respuesta sea 2xx. Antes de guardar pasa el body por `firestoreSafe()` (elimina `undefined`, `NaN`, `Infinity`).
 - Cualquier fallo de Firestore en la cacheación se ignora: la respuesta al cliente sale igualmente.
 
 ### 1.5 Manejo de errores (`src/middlewares/errorHandler.js`)
@@ -445,7 +445,7 @@ Esquema del body (`routes.js:10`):
 |---|---|---|
 | `fecha` | `string` con regex `^\d{4}-\d{2}-\d{2}$` | Sí |
 | `hora` | `string` (debe estar en `SLOTS`) | Sí |
-| `comensales` | `union(string, number)` — se hace `parseInt` en el handler; validado en servicio a entero `1..10` | Sí |
+| `comensales` | entero `1..10` o string numérico equivalente; no booleanos, arrays, decimales ni sufijos | Sí |
 | `restauranteId` | `string` min 1 | Uno de los dos |
 | `restaurantId` | `string` min 1 | (alias) |
 | `comentarios` | `string` máx 500 | No |
@@ -1591,7 +1591,7 @@ Router: `src/modules/reviews/routes.js`. Servicio: `src/modules/reviews/service.
 | Auth | `verifyFirebaseAuth` |
 | Middlewares | `validate(crearSchema)` |
 | Roles | — |
-| Body | `{ restauranteId: string min 1, puntuacion: int 1..5, comentario: string min 1 }` |
+| Body | `{ restauranteId: string 1..200 sin slash, puntuacion: int 1..5, comentario: string trim 1..4000 }` |
 | Respuesta | `201 { id, reviewId, …puntos }` |
 | Errores | `400 VALIDATION_ERROR` (+`details` o con `message`); 500 `INTERNAL_ERROR` |
 
@@ -3546,3 +3546,55 @@ con volúmenes muy elevados convendrá añadir paginación por cursor.
 Despliegue: **backend primero, frontend después**. El nuevo frontend muestra error
 si una respuesta antigua no incluye el dataset completo, evitando un documento
 silenciosamente truncado. No requiere nuevas variables de Render/Vercel.
+
+### BUG-113 — CORS, idempotencia y validación P2
+
+**Configuración obligatoria en Render antes de desplegar:** establecer
+`CORS_ALLOWED_ORIGINS` con los orígenes exactos del frontend productivo y de cada
+preview autorizado, separados por comas. Añadir también localhost si se necesita
+usar la API remota desde desarrollo. El valor por defecto de `.env.example` solo
+permite localhost y 127.0.0.1 en 5173/4173; producción/previews se deniegan hasta
+configurarlos. No se admite `*.vercel.app`, protocolos distintos de HTTP(S),
+credenciales, rutas, query ni fragmentos. Una configuración inválida impide arrancar.
+Los dominios se canonicalizan como origen (se tolera slash final). El browser recibe
+Access-Control-Allow-Origin únicamente si coincide. Sin Origin siguen funcionando
+clientes HTTP/autenticados. CORS no sustituye autenticación ni pertenencia.
+
+Vercel no necesita una nueva variable del frontend; al crear un preview cuyo acceso
+se desee, añadir explícitamente su origen a la variable de Render y reiniciar la API.
+No se ha modificado ninguna configuración remota desde Codex.
+
+`Idempotency-Key`: máximo 200 caracteres; namespace SHA-256 de usuario/método/ruta
+concreta/key, evitando colisiones de otros endpoints o recursos. El body validado
+se canonicaliza ordenando claves (arrays conservan orden). Repetir el mismo body
+reproduce una respuesta 2xx; body distinto devuelve 409 `IDEMPOTENCY_CONFLICT` sin
+invocar el handler. Errores no se cachean. Los documentos anteriores con ID uid_key
+no se reutilizan; no hay migración ni borrado remoto. El mecanismo continúa siendo
+best-effort si Firestore falla; no incorpora un lock distribuido de peticiones
+simultáneas (sin cambio de esta característica en la tanda).
+
+Cambios de validación HTTP (400 `VALIDATION_ERROR` si no se cumplen):
+
+- `/users/me`: nombre trim 1..200; email válido <=254 o vacío; lang es/ca/en;
+  favoritos máximo 500 IDs de 1..200, sin slash. Preferencias objeto estricto con
+  vegano/soloVegano/vegetariano/sinGluten booleanos y alergias array (max7) del
+  dominio gluten/lactosa/huevo/frutos_secos/marisco/pescado/soja. Accesibilidad
+  estricta: sillaRuedas/tea booleanos. Cookies estrictas: necesarias solo true si
+  se envía; preferencias/analiticas/marketing booleanos; timestamp ISO con offset
+  o null. Estos tres objetos admiten null y propiedades opcionales para mantener
+  actualizaciones parciales/formas válidas de la web.
+- Crear reserva y consultar availability: ID de restaurante requerido, calendario
+  YYYY-MM-DD real (incluye comprobación bisiesta) y HH:MM de 00:00 a23:59; el servicio
+  sigue comprobando SLOTS. Reserva: comensales entero1..10 o string numérico,
+  comentarios<=500 y nombres<=200/email<=254. Booleanos, arrays, decimales y '2x'
+  se rechazan en el esquema antes de ejecutar la operación.
+- Reseñas: comentario trim1..4000, puntuación entera1..5 e ID<=200 sin slash.
+- Promociones: fechas de calendario/ISO válidas, fin>=inicio; presupuesto positivo
+  finito<=1000000, CPC positivo finito<=100, puntos extra entero0..10000, tipo1..60
+  e ID<=200 sin slash.
+- Interacciones: ID trim1..200 sin slash y tipo view/click.
+
+**Despliegue:** configurar CORS en Render, luego desplegar backend; frontend de
+BUG-106 después del backend. Los cuerpos válidos de la web conservan contrato;
+clientes con entradas antes aceptadas pero inválidas deben ajustarlas. No se ha
+editado código de `modules/points` ni `modules/ai`.

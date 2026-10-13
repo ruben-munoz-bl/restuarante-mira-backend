@@ -1,3 +1,4 @@
+const { createHash } = require("node:crypto");
 const { db } = require("./verifyFirebaseAuth");
 const { logger } = require("./errorHandler");
 
@@ -83,17 +84,30 @@ function firestoreSafe(value) {
   return value;
 }
 
+function cuerpoCanonico(valor) {
+  if (Array.isArray(valor)) return valor.map(cuerpoCanonico);
+  if (valor && typeof valor === "object") {
+    return Object.fromEntries(Object.keys(valor).sort().map((k) => [k, cuerpoCanonico(valor[k])]));
+  }
+  return valor;
+}
+
 async function idempotency(req, res, next) {
   const key = req.headers["idempotency-key"];
   if (!key) return next();
+  if (typeof key !== "string" || key.length > 200) return res.status(400).json({ error: "INVALID_IDEMPOTENCY_KEY" });
   const uid = req.user?.uid || "anonymous";
-  const docId = `${uid}_${key}`;
+  const ruta = (req.originalUrl || `${req.baseUrl || ""}${req.path}`).split("?")[0];
+  const hash = (s) => createHash("sha256").update(s).digest("hex");
+  const docId = hash(JSON.stringify([uid, req.method, ruta, key]));
+  const requestHash = hash(JSON.stringify(cuerpoCanonico(req.body ?? null)));
   try {
     const doc = await db.collection("idempotencyKeys").doc(docId).get();
     if (doc.exists) {
       const cached = doc.data();
       // Nunca re-servimos un error cacheado: solo successes (2xx).
       if (cached.status >= 200 && cached.status < 300) {
+        if (cached.requestHash !== requestHash) return res.status(409).json({ error: "IDEMPOTENCY_CONFLICT", message: "La clave ya se usó con otro cuerpo" });
         return res.status(cached.status).json(cached.body);
       }
       await db.collection("idempotencyKeys").doc(docId).delete().catch(() => {});
@@ -107,7 +121,7 @@ async function idempotency(req, res, next) {
         try {
           db.collection("idempotencyKeys")
             .doc(docId)
-            .set({ status, body: firestoreSafe(body), createdAt: new Date() })
+            .set({ status, body: firestoreSafe(body), requestHash, createdAt: new Date() })
             .catch((err) => logger.warn({ docId, error: err.message }, "idempotency cache failed"));
         } catch (err) {
           logger.warn({ docId, error: err.message }, "idempotency cache failed");

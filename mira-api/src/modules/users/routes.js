@@ -4,6 +4,7 @@ const { verifyFirebaseAuth, authorize } = require("../../middlewares/verifyFireb
 const { validate } = require("../../middlewares/validate");
 const userService = require("./service");
 
+const { documentoId, alergias, preferencias, accesibilidad, consentimientoCookies } = require("../../middlewares/inputSchemas");
 const router = Router();
 
 router.get("/me", verifyFirebaseAuth, async (req, res, next) => {
@@ -18,15 +19,15 @@ router.get("/me", verifyFirebaseAuth, async (req, res, next) => {
 const updateSchema = z.object({
   // "admin" nunca se acepta desde el cliente: cualquiera podría nombrarse administrador.
   tipo: z.enum(["cliente", "empresa"]).optional(),
-  nombre: z.string().optional(),
-  email: z.string().optional(),
+  nombre: z.string().trim().min(1).max(200).optional(),
+  email: z.union([z.string().email().max(254), z.literal("")]).optional(),
   soloVegano: z.boolean().optional(),
-  alergias: z.array(z.string()).optional(),
-  lang: z.string().optional(),
-  consentimientoCookies: z.any().optional(),
-  preferencias: z.any().optional(),
-  accesibilidad: z.any().optional(),
-  favoritos: z.array(z.string()).optional(),
+  alergias: alergias.optional(),
+  lang: z.enum(["es", "ca", "en"]).optional(),
+  consentimientoCookies: consentimientoCookies.nullable().optional(),
+  preferencias: preferencias.nullable().optional(),
+  accesibilidad: accesibilidad.nullable().optional(),
+  favoritos: z.array(documentoId).max(500).optional(),
 });
 
 router.put("/me", verifyFirebaseAuth, validate(updateSchema), async (req, res, next) => {

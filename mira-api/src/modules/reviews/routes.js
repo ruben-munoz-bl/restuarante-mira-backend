@@ -4,12 +4,13 @@ const { verifyFirebaseAuth, db } = require("../../middlewares/verifyFirebaseAuth
 const { validate } = require("../../middlewares/validate");
 const reviewService = require("./service");
 
+const { documentoId } = require("../../middlewares/inputSchemas");
 const router = Router();
 
 const crearSchema = z.object({
-  restauranteId: z.string().min(1),
+  restauranteId: documentoId,
   puntuacion: z.number().int().min(1).max(5),
-  comentario: z.string().min(1),
+  comentario: z.string().trim().min(1).max(4000),
 });
 
 router.post("/", verifyFirebaseAuth, validate(crearSchema), async (req, res, next) => {
