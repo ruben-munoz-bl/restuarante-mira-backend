@@ -15,8 +15,15 @@ function hoyStr() {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid" }).format(new Date());
 }
 
-function calcRachaLogin(data) {
-  const hoy = hoyStr();
+/**
+ * Proyección de la racha de login si se reclamara hoy.
+ * - Día siguiente al último: +1.
+ * - Un día saltado (diff 2) con gracia disponible (máx. 2 por racha): el hueco se perdona y la racha sigue (+1).
+ * - Cualquier otro hueco, o una fecha guardada inválida/futura: la racha empieza de nuevo en 1.
+ * @param {object} data  documento del usuario
+ * @param {string} [hoy] YYYY-MM-DD (Europe/Madrid); parámetro solo para tests
+ */
+function calcRachaLogin(data, hoy = hoyStr()) {
   const ultimo = data.ultimoLoginDate || null;
   if (ultimo === hoy) {
     return {
@@ -28,17 +35,19 @@ function calcRachaLogin(data) {
       dia7Disponible: (data.rachaLoginDias || 0) >= 7,
     };
   }
-  const anterior = new Date(ultimo || hoy);
-  const diff = Math.floor((new Date(hoy) - anterior) / 86400000);
+  const diff = ultimo ? Math.round((new Date(hoy) - new Date(ultimo)) / 86400000) : NaN;
   let dias = Math.min(data.rachaLoginDias || 0, 7);
   let grace = data.graceUsados || 0;
   if (diff === 1) {
     dias += 1;
   } else if (diff === 2 && grace < 2) {
+    // Antes la gracia mantenía la racha sin sumar el día de hoy.
     grace += 1;
+    dias += 1;
   } else {
-    dias = diff > 2 ? 1 : (dias || 0) + 1;
-    if (diff > 2) grace = 0;
+    // Antes, con la gracia agotada o una fecha futura, la racha seguía sumando en vez de reiniciarse.
+    dias = 1;
+    grace = 0;
   }
   dias = Math.min(dias, 7);
   const dia7Disponible = dias >= 7;
