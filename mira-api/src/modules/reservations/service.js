@@ -201,7 +201,7 @@ async function completarReserva(reservaId, { uid, precioManual, emitidoPor } = {
 
   try {
     const { onInvitadoReservaCompletada } = require("../invitations/service");
-    await onInvitadoReservaCompletada(reserva.uid);
+    await onInvitadoReservaCompletada(reserva.uid, reservaId);
   } catch (err) {
     logger.error({ reservaId, error: err.message }, "Invitation check failed");
   }
@@ -315,7 +315,7 @@ async function subirTicket(reservaId, { uid, totalPagado, asistio = true, fileNa
     }
     try {
       const { onInvitadoReservaCompletada } = require("../invitations/service");
-      await onInvitadoReservaCompletada(r.uid);
+      await onInvitadoReservaCompletada(r.uid, reservaId);
     } catch (err) {
       logger.error({ reservaId, error: err.message }, "Invitation check failed");
     }
@@ -359,7 +359,7 @@ async function actualizarEstado(reservaId, status, { precioBase } = {}) {
     }
     try {
       const { onInvitadoReservaCompletada } = require("../invitations/service");
-      await onInvitadoReservaCompletada(reserva.uid);
+      await onInvitadoReservaCompletada(reserva.uid, reservaId);
     } catch (err) {
       logger.error({ reservaId, error: err.message }, "Invitation check failed");
     }

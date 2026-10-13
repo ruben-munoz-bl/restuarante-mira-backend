@@ -3478,3 +3478,13 @@ Puntos donde el código actual **no** aplica control de acceso, documentados por
 | `POST /v1/auditoria/purge` | Borra eventos reales; protegido solo por rol `admin` + confirmación literal `"PURGAR"`. |
 
 Ninguno de estos puntos se puede cerrar desde el frontend: son cambios de backend.
+### BUG-015 — invitaciones (Tanda 2)
+
+`GET /v1/invite/my` añade `puntosTotales`; `aceptadas` cuenta ahora las invitaciones
+**enviadas por el usuario** que han completado el requisito, en lugar de códigos
+recibidos por él. El body de creación/aceptación no cambia. Tras dos reservas
+completadas distintas, ambos usuarios reciben `PUNTOS_INVITACION` (200 por defecto)
+y un movimiento individual; el ID de cada reserva evita contabilizarla dos veces.
+El frontend construye el enlace `/#/registro?invite=<codigo>` en su propio dominio.
+Despliegue: **backend primero, frontend después**. No es necesario enviar emails:
+el usuario comparte el enlace con el destinatario indicado.
