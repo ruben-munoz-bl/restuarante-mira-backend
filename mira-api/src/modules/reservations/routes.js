@@ -7,21 +7,23 @@ const reservationService = require("./service");
 
 const { documentoDelRestaurante } = require("../../middlewares/ownership");
 const { precioSchema, ticketSchema } = require("../../middlewares/businessSchemas");
+const { documentoId, fechaCalendario, horaReserva } = require("../../middlewares/inputSchemas");
 const router = Router();
 
 const crearReservaSchema = z.object({
-  restauranteId: z.string().min(1).optional(),
-  restaurantId: z.string().min(1).optional(),
-  fecha: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  hora: z.string(),
-  comensales: z.union([z.string(), z.number()]),
+  restauranteId: documentoId.optional(),
+  restaurantId: documentoId.optional(),
+  fecha: fechaCalendario,
+  hora: horaReserva,
+  comensales: z.union([z.number().int().min(1).max(10), z.string().trim().regex(/^(?:[1-9]|10)$/).transform(Number)]),
   comentarios: z.string().max(500).optional(),
-  nombreRestaurante: z.string().optional(),
-  usuarioNombre: z.string().optional(),
-  usuarioEmail: z.string().optional(),
-});
+  nombreRestaurante: z.string().max(200).optional(),
+  usuarioNombre: z.string().max(200).optional(),
+  usuarioEmail: z.union([z.string().email().max(254), z.literal("")]).optional(),
+}).refine((d) => d.restaurantId || d.restauranteId, { message: "Restaurante requerido" });
 
-router.get("/availability", optionalAuth, async (req, res, next) => {
+const disponibilidadSchema = z.object({ restaurantId: documentoId.optional(), restauranteId: documentoId.optional(), fecha: fechaCalendario, hora: horaReserva }).refine((d) => d.restaurantId || d.restauranteId);
+router.get("/availability", optionalAuth, validate(disponibilidadSchema, "query"), async (req, res, next) => {
   try {
     const restaurantId = req.query.restauranteId || req.query.restaurantId;
     const result = await reservationService.getDisponibilidad(

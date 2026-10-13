@@ -30,17 +30,9 @@ app.set("json replacer", jsonReplacer);
 app.set("trust proxy", 1);
 app.use(helmet());
 
-const LOCAL_ORIGINS = ["http://localhost:5173", "http://localhost:4173"];
-function isAllowedOrigin(origin) {
-  if (!origin) return true;
-  if (LOCAL_ORIGINS.includes(origin)) return true;
-  try {
-    const u = new URL(origin);
-    return u.hostname === "vercel.app" || u.hostname.endsWith(".vercel.app");
-  } catch {
-    return false;
-  }
-}
+const { env } = require("./config/env");
+const { crearPoliticaCors } = require("./middlewares/corsOrigins");
+const isAllowedOrigin = crearPoliticaCors(env.CORS_ALLOWED_ORIGINS);
 app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
 
 app.use(express.json());

@@ -5,10 +5,11 @@ const { validate } = require("../../middlewares/validate");
 const { registrarVista, registrarClick } = require("./service");
 const { registrarServidor } = require("../auditoria/service");
 
+const { documentoId } = require("../../middlewares/inputSchemas");
 const router = Router();
 
 const interactionSchema = z.object({
-  restauranteId: z.string().min(1),
+  restauranteId: documentoId,
   tipo: z.enum(["view", "click"]),
 });
 router.post("/", verifyFirebaseAuth, validate(interactionSchema), async (req, res, next) => {

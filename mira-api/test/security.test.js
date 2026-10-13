@@ -192,15 +192,10 @@ test("SEC GET /v1/restaurants no expone campos sensibles de usuarios", async () 
 
 /* ───────── CORS ───────── */
 
-test("SEC CORS permite origins *.vercel.app (preview y prod)", async () => {
-  const origins = [
-    "https://restaurante-mira-frontend-qvyyaknis-rumu439-4703.vercel.app",
-    "https://restaurante-mira-frontend.vercel.app",
-    "https://mira.vercel.app",
-  ];
-  for (const origin of origins) {
+test("SEC CORS permite únicamente los orígenes locales por defecto", async () => {
+  for (const origin of ["http://localhost:5173", "http://localhost:4173", "http://127.0.0.1:5173", "http://127.0.0.1:4173"]) {
     const res = await request(app).get("/health").set("Origin", origin);
-    assert.equal(res.headers["access-control-allow-origin"], origin, `Debe permitir ${origin}`);
+    assert.equal(res.headers["access-control-allow-origin"], origin);
   }
 });
 

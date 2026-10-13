@@ -105,6 +105,7 @@ function buildRestaurantAggregates(reservas, tickets, finanzas) {
     reservasParaTicket,
     ingresosPorMes,
     ticketsRecientes: tickets.slice(0, 20),
+    tickets,
   };
 }
 
@@ -266,8 +267,8 @@ async function getMyRestaurant(uid, restaurantIdOverride, rol = null) {
 
   const [reservas, ticketsSnap, finanzasSnap] = await Promise.all([
     fetchReservasForRestaurant(restaurantId),
-    db.collection("tickets").where("restaurantId", "==", restaurantId).orderBy("createdAt", "desc").limit(500).get().catch(async () =>
-      db.collection("tickets").where("restaurantId", "==", restaurantId).limit(500).get(),
+    db.collection("tickets").where("restaurantId", "==", restaurantId).orderBy("createdAt", "desc").get().catch(async () =>
+      db.collection("tickets").where("restaurantId", "==", restaurantId).get(),
     ),
     db.collection("finanzas_restaurante").doc(restaurantId).get().catch(() => ({ exists: () => false, data: () => null })),
   ]);

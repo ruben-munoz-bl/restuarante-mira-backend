@@ -5,6 +5,7 @@ const { validate } = require("../../middlewares/validate");
 const promotionService = require("./service");
 
 const { comprobarRestaurante, documentoDelRestaurante } = require("../../middlewares/ownership");
+const { documentoId, fechaPromocion } = require("../../middlewares/inputSchemas");
 const router = Router();
 
 router.get("/", async (req, res, next) => {
@@ -20,14 +21,14 @@ router.get("/", async (req, res, next) => {
 });
 
 const crearPromoSchema = z.object({
-  restauranteId: z.string().min(1),
-  tipo: z.string().optional(),
-  fechaInicio: z.string(),
-  fechaFin: z.string(),
-  presupuestoTotal: z.number().positive(),
-  cpc: z.number().positive().optional(),
-  puntosExtraPorReserva: z.number().int().optional(),
-});
+  restauranteId: documentoId,
+  tipo: z.string().trim().min(1).max(60).optional(),
+  fechaInicio: fechaPromocion,
+  fechaFin: fechaPromocion,
+  presupuestoTotal: z.number().finite().positive().max(1000000),
+  cpc: z.number().finite().positive().max(100).optional(),
+  puntosExtraPorReserva: z.number().int().min(0).max(10000).optional(),
+}).refine((d) => new Date(d.fechaFin) >= new Date(d.fechaInicio), { message: "La fecha final no puede preceder a la inicial" });
 router.post("/", verifyFirebaseAuth, authorize("empresa", "admin"), validate(crearPromoSchema), async (req, res, next) => {
   try {
     await comprobarRestaurante(req.validated.restauranteId, req.user);
