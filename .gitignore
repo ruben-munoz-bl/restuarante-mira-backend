@@ -9,3 +9,6 @@ restaurantes_espana_con_resenas.json
 mira-api/lib/
 firebase-debug.log
 *.local
+
+# utilidades de extracción puntuales (no versionar)
+*.tmp.js
