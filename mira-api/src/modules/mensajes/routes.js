@@ -32,7 +32,7 @@ router.put("/read-all", verifyFirebaseAuth, async (req, res, next) => {
 
 router.put("/:id/read", verifyFirebaseAuth, async (req, res, next) => {
   try {
-    const result = await mensajeService.marcarLeido(req.params.id);
+    const result = await mensajeService.marcarLeido(req.params.id, req.user.uid);
     res.json(result);
   } catch (err) {
     next(err);

@@ -258,7 +258,8 @@ test("/mapa NO escribe en Firestore en cada llamada (regresión de escrituras)",
     for (let i = 0; i < 20; i++) await request(app).get("/v1/restaurants/mapa");
     assert.equal(escrituras, tras1, "/mapa no debe reescribir el documento _catalogo en cada petición");
   } finally {
-    docProto.set = origSet;
+    if (origSet === undefined) delete docProto.set;
+    else docProto.set = origSet;
   }
 });
 

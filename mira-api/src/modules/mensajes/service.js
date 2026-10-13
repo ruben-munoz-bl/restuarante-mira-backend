@@ -16,7 +16,10 @@ async function contarNoLeidos(uid) {
   return n;
 }
 
-async function marcarLeido(id) {
+async function marcarLeido(id, uid) {
+  const snap = await db.collection("mensajes").doc(id).get();
+  if (!snap.exists) throw Object.assign(new Error("Mensaje no encontrado"), { status: 404, code: "NOT_FOUND" });
+  if (snap.data().uid !== uid) throw Object.assign(new Error("No autorizado"), { status: 403, code: "FORBIDDEN" });
   await db.collection("mensajes").doc(id).update({ leido: true });
   return { ok: true };
 }

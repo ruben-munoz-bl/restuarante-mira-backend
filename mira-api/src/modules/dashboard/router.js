@@ -22,6 +22,8 @@ const { getAllUsers } = require("../users/service");
 const { subirTicket } = require("../reservations/service");
 const restaurantService = require("../restaurants/service");
 
+const { restaurantePropio, documentoDelRestaurante, protegerComision } = require("../../middlewares/ownership");
+const { restaurantUpdateSchema, precioSchema, estadoSchema, ticketSchema } = require("../../middlewares/businessSchemas");
 const router = express.Router();
 
 router.get("/my-restaurants", verifyFirebaseAuth, authorize("empresa", "admin"), asyncHandler(async (req, res) => {
@@ -58,7 +60,7 @@ router.get("/reservations", verifyFirebaseAuth, authorize("admin"), asyncHandler
   res.json(list);
 }));
 
-router.put("/restaurant/:id", verifyFirebaseAuth, authorize("empresa", "admin"), asyncHandler(async (req, res) => {
+router.put("/restaurant/:id", verifyFirebaseAuth, authorize("empresa", "admin"), restaurantePropio(), protegerComision, validate(restaurantUpdateSchema), asyncHandler(async (req, res) => {
   const result = await updateRestaurant(req.params.id, req.body);
   res.json(result);
 }));
@@ -92,26 +94,26 @@ router.post("/restaurant/:id/message", verifyFirebaseAuth, authorize("admin"), v
   res.status(201).json(result);
 }));
 
-router.put("/reservations/:id/status", verifyFirebaseAuth, authorize("empresa", "admin"), asyncHandler(async (req, res) => {
+router.put("/reservations/:id/status", verifyFirebaseAuth, authorize("empresa", "admin"), documentoDelRestaurante("reservas"), validate(estadoSchema), asyncHandler(async (req, res) => {
   const result = await updateReservationStatus(req.params.id, req.body.status, {
     precioBase: req.body.precioBase,
   });
   res.json(result);
 }));
 
-router.post("/reservations/:id/confirm-attendance", verifyFirebaseAuth, authorize("empresa", "admin"), asyncHandler(async (req, res) => {
+router.post("/reservations/:id/confirm-attendance", verifyFirebaseAuth, authorize("empresa", "admin"), documentoDelRestaurante("reservas"), validate(precioSchema), asyncHandler(async (req, res) => {
   const result = await updateReservationStatus(req.params.id, "completada", {
     precioBase: req.body.precioBase,
   });
   res.json(result);
 }));
 
-router.post("/reservations/:id/mark-no-show", verifyFirebaseAuth, authorize("empresa", "admin"), asyncHandler(async (req, res) => {
+router.post("/reservations/:id/mark-no-show", verifyFirebaseAuth, authorize("empresa", "admin"), documentoDelRestaurante("reservas"), validate(z.object({}).strict().default({})), asyncHandler(async (req, res) => {
   const result = await updateReservationStatus(req.params.id, "no_show", {});
   res.json(result);
 }));
 
-router.post("/reservations/:id/ticket", verifyFirebaseAuth, authorize("empresa", "admin"), asyncHandler(async (req, res) => {
+router.post("/reservations/:id/ticket", verifyFirebaseAuth, authorize("empresa", "admin"), documentoDelRestaurante("reservas"), validate(ticketSchema), asyncHandler(async (req, res) => {
   const result = await subirTicket(req.params.id, {
     uid: req.user.uid,
     totalPagado: req.body.totalPagado,

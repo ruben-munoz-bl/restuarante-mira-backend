@@ -4,6 +4,7 @@ const { verifyFirebaseAuth, authorize } = require("../../middlewares/verifyFireb
 const { validate } = require("../../middlewares/validate");
 const promotionService = require("./service");
 
+const { comprobarRestaurante, documentoDelRestaurante } = require("../../middlewares/ownership");
 const router = Router();
 
 router.get("/", async (req, res, next) => {
@@ -29,6 +30,7 @@ const crearPromoSchema = z.object({
 });
 router.post("/", verifyFirebaseAuth, authorize("empresa", "admin"), validate(crearPromoSchema), async (req, res, next) => {
   try {
+    await comprobarRestaurante(req.validated.restauranteId, req.user);
     const result = await promotionService.crearPromocion({ uid: req.user.uid, ...req.validated });
     res.status(201).json(result);
   } catch (err) {
@@ -38,7 +40,7 @@ router.post("/", verifyFirebaseAuth, authorize("empresa", "admin"), validate(cre
   }
 });
 
-router.get("/:id/stats", verifyFirebaseAuth, authorize("empresa", "admin"), async (req, res, next) => {
+router.get("/:id/stats", verifyFirebaseAuth, authorize("empresa", "admin"), documentoDelRestaurante("promociones"), async (req, res, next) => {
   try {
     const stats = await promotionService.getPromoStats(req.params.id);
     res.json(stats);

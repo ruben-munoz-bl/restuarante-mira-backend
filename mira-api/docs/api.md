@@ -3496,3 +3496,40 @@ el usuario comparte el enlace con el destinatario indicado.
 es idempotente y procesa lotes inferiores al límite de 500 escrituras.
 Después consultar `/v1/mensajes/unread-count` para actualizar los contadores.
 Despliegue: backend primero, frontend después.
+
+### BUG-014 — autorización por recurso y validación
+
+Las acciones de `PUT /dashboard/restaurant/:id`, `PUT /restaurants/:id`,
+`PUT /reservations/:id/complete`, `POST /reservations/:id/ticket` y los cuatro
+endpoints de estado/asistencia/ticket de `/dashboard/reservations/:id/*` exigen
+propiedad del restaurante además del rol empresa/admin. La vinculación válida es
+`restaurants.uid`, `restaurants.ownerUid` o la asignación server-side en
+`usuarios.restaurantId(s)`. El email editable del perfil no acredita propiedad.
+Admin mantiene acceso global; un ID ajeno devuelve 403 y uno inexistente 404.
+`GET /tickets/:id` y `/promotions/:id/stats` aplican la misma pertenencia para empresas.
+`PUT /mensajes/:id/read` solo admite mensajes del UID autenticado (403 si ajeno).
+
+Los endpoints de escritura del dashboard usan Zod. Body de estado:
+`{status: pendiente|confirmada|cancelada|completada|no_show, precioBase?: number > 0}`.
+Confirmar asistencia/completar acepta `{precioBase?: number > 0}` o body vacío.
+Marcar no-show acepta body vacío. Subir ticket acepta `{totalPagado: number > 0
+|string decimal con punto/coma, asistio?: boolean, fileName?: string <= 300,
+tipoDocumento?: string <= 100}`. Edición de restaurante descarta claves de metadatos/desconocidas,
+valida límites de campos y solo admin puede cambiar `comisionPct` (0..100).
+El formulario existente puede reenviar el documento completo: para empresa se
+acepta una comisión idéntica a la persistida, pero se elimina del update.
+
+Contacto público limita nombre/motivo a 200 y mensaje a 2000 caracteres, con
+20 peticiones/minuto. La API aplica además 300 peticiones/minuto por IP,
+compartidas entre rutas; health queda fuera. Helmet sigue activo y los errores 5xx
+responden siempre `Error interno`; el detalle queda en logs del servidor.
+
+Aceptación de invitaciones exige email del token coincidente y permite una sola
+invitación por usuario, registrada en `invitaciones_aceptadas/{uid}`. Repetir el
+mismo código ya aceptado por el mismo UID es idempotente; aceptar otro devuelve 409.
+
+Despliegue: **backend primero; después publicar firestore.rules; después frontend**.
+Las reglas de Firestore pasan a denegar todo acceso directo desde SDK cliente,
+porque web y móvil acceden a los datos mediante mira-api. Admin SDK no depende de
+estas reglas. Configurar/probar previamente el emulador de reglas y comprobar el
+flujo en staging; este cambio no se ha publicado desde Codex.

@@ -55,8 +55,9 @@ async function getTicket(ticketId, uid, role) {
   const doc = await db.collection("tickets").doc(ticketId).get();
   if (!doc.exists) throw new Error("Ticket no encontrado");
   const ticket = { id: doc.id, ...doc.data() };
-  if (uid && ticket.uid !== uid && role !== "admin" && role !== "empresa") {
-    throw new Error("No autorizado");
+  if (ticket.uid !== uid && role !== "admin") {
+    if (role !== "empresa") throw new Error("No autorizado");
+    await require("../../middlewares/ownership").comprobarRestaurante(ticket.restaurantId || ticket.restauranteId, { uid, role });
   }
   return ticket;
 }

@@ -40,22 +40,27 @@ async function aceptarInvitacion(codigo, uid, userEmail) {
   const inviteSnap = await db.collection("invitaciones").where("codigo", "==", codigo).limit(1).get();
   if (inviteSnap.empty) throw new Error("Código no válido");
   const inviteDoc = inviteSnap.docs[0];
-  const inv = inviteDoc.data();
-
-  if (inv.emailInvitado && userEmail && inv.emailInvitado.toLowerCase() !== String(userEmail).toLowerCase()) {
-    throw new Error("Este código no es para ti");
-  }
-  if (inv.estado !== "pendiente") throw new Error("Invitación ya usada");
-
-  await db.collection("invitaciones").doc(inviteDoc.id).update({
-    estado: "esperando_2_reservas",
-    aceptadaPor: uid,
-    aceptadaEn: new Date(),
-    updatedAt: new Date(),
+  const resultado = await db.runTransaction(async (tx) => {
+    const actual = await tx.get(db.collection("invitaciones").doc(inviteDoc.id));
+    const inv = actual.data();
+    const aceptacionRef = db.collection("invitaciones_aceptadas").doc(uid);
+    const previa = await tx.get(aceptacionRef);
+    if (!userEmail || inv.creadorUid === uid ||
+        inv.emailInvitado.toLowerCase() !== String(userEmail).toLowerCase()) {
+      throw new Error("Este código no es para ti");
+    }
+    if (inv.aceptadaPor === uid && inv.estado !== "pendiente") {
+      return { ok: true, creadorUid: inv.creadorUid, estado: inv.estado };
+    }
+    if (inv.estado !== "pendiente" || previa.exists) throw new Error("Invitación ya usada");
+    tx.update(db.collection("invitaciones").doc(inviteDoc.id), {
+      estado: "esperando_2_reservas", aceptadaPor: uid,
+      aceptadaEn: new Date(), updatedAt: new Date(),
+    });
+    tx.set(aceptacionRef, { invitacionId: inviteDoc.id, createdAt: new Date() });
+    return { ok: true, creadorUid: inv.creadorUid, estado: "esperando_2_reservas" };
   });
-
-  logger.info({ inviteId: inviteDoc.id, uid }, "Invitation accepted (waiting for 2 reservations)");
-  return { ok: true, creadorUid: inv.creadorUid, estado: "esperando_2_reservas" };
+  return resultado;
 }
 
 async function onInvitadoReservaCompletada(invitadoUid, reservaId) {

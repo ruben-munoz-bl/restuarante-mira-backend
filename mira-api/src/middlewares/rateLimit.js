@@ -45,9 +45,9 @@ function clearRateLimits() {
   rateLimitStore.clear();
 }
 
-function rateLimit(windowMs = 60000, max = 100) {
+function rateLimit(windowMs = 60000, max = 100, clave = rateLimitKey) {
   return (req, res, next) => {
-    const key = rateLimitKey(req);
+    const key = clave(req);
     const now = Date.now();
     const windowStart = now - windowMs;
     if (rateLimitStore.size > MAX_CLAVES && !rateLimitStore.has(key)) purgar();
