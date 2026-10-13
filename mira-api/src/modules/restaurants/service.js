@@ -15,6 +15,33 @@ let cache = { at: 0, items: null, byId: null };
 let inflight = null;
 const stats = { cargas: 0, aciertos: 0, misses: 0, desfasados: 0 };
 
+// Marcado cuando se modifica un restaurante SIN cambiar el recuento de la
+// colección (renombrar, cambiar teléfono...): el chequeo de frescura por
+// número de documentos no lo detecta, así que hay que forzar la
+// reconstrucción del documento _catalogo en la siguiente carga.
+// Un arranque en frío no lo lleva: ahí sí se hidrata desde el documento.
+let sucio = false;
+
+/**
+ * ¿El documento _catalogo recoge todos los restaurantes de la colección?
+ * Compara `total` con el recuento real (count() = 1 lectura) para detectar
+ * altas y bajas hechas fuera de este proceso (aprobaciones de negocios,
+ * borrados desde el panel admin), que por sí solas no invalidan esta caché.
+ */
+async function catalogoDesactualizado(doc) {
+  try {
+    const snap = await db.collection("restaurants").count().get();
+    const reales = snap.data().count - 1; // -1: el propio documento _catalogo
+    if (Number(doc.total) === reales) return false;
+    logger.info({ documentado: doc.total, reales }, "_catalogo desactualizado: se reconstruirá");
+    return true;
+  } catch (err) {
+    // Si el recuento falla, mejor servir el documento que romper la búsqueda.
+    logger.warn({ error: err.message }, "no se pudo comprobar la frescura de _catalogo");
+    return false;
+  }
+}
+
 async function catalogo() {
   const ahora = Date.now();
   if (cache.items && ahora - cache.at < CACHE_TTL_MS) {
@@ -42,11 +69,13 @@ async function catalogo() {
   inflight = (async () => {
     stats.misses += 1;
 
-    // PRIMERO: hidratar desde el documento _catalogo (1 lectura). Antes esto
-    // solo se usaba para el mapa, así que un arranque en frío acababa leyendo
-    // los 700 restaurantes sueltos aunque el documento ya existiera.
+    // PRIMERO: hidratar desde el documento _catalogo (1 lectura + 1 count).
+    // Antes esto solo se usaba para el mapa, así que un arranque en frío
+    // acababa leyendo los 700 restaurantes sueltos aunque el documento ya
+    // existiera. Solo se usa si el documento sigue reflejando la colección.
     const doc = await leerCatalogoMapa();
-    if (doc && Array.isArray(doc.restaurantes) && doc.restaurantes.length) {
+    const usable = doc && Array.isArray(doc.restaurantes) && doc.restaurantes.length;
+    if (usable && !sucio && !(await catalogoDesactualizado(doc))) {
       const items = doc.restaurantes.map((r) => ({ ...r, id: r.id || r._id }));
       cache = { at: Date.now(), items, byId: new Map(items.map((r) => [r.id, r])), refrescando: false, parcial: true };
       stats.cargas += 1;
@@ -54,7 +83,8 @@ async function catalogo() {
       return items;
     }
 
-    // Sin documento: carga completa (solo la primera vez o tras un borrado).
+    // Sin documento, desactualizado o sucio: carga completa (la primera vez,
+    // tras un alta/baja fuera de este proceso, o tras editar un restaurante).
     const snap = await db.collection("restaurants").get();
     // _catalogo es un documento técnico, no un restaurante.
     const items = snap.docs
@@ -63,6 +93,14 @@ async function catalogo() {
     const byId = new Map(items.map((r) => [r.id, r]));
     cache = { at: Date.now(), items, byId, refrescando: false, parcial: false };
     stats.cargas += 1;
+    sucio = false;
+    // Se regenera el documento para que el próximo arranque en frío (o el de
+    // otra instancia) vuelva a hidratar de él sin releer los 700 sueltos.
+    try {
+      await regenerarCatalogoMapa(items);
+    } catch (err) {
+      logger.warn({ error: err.message }, "no se pudo regenerar el documento _catalogo");
+    }
     logger.info({ total: items.length, fuente: "firestore" }, "restaurants cache cargada");
     return items;
   })().finally(() => {
@@ -180,20 +218,30 @@ async function listarMapa({ ciudad = null } = {}) {
     return ciudad ? items.filter((r) => r.ciudad === ciudad) : items;
   }
   const doc = await leerCatalogoMapa();
-  if (doc) {
+  if (doc && !sucio && !(await catalogoDesactualizado(doc))) {
     const items = doc.restaurantes.map((r) => (ciudad && r.ciudad !== ciudad ? null : r)).filter(Boolean);
     if (items.length) return items;
   }
-  // No existe el documento: se construye desde los datos reales y se guarda
-  // una única vez para los próximos arranques en frío.
+  // No hay documento, está desactualizado o sucio: se construye desde los
+  // datos reales. listarRestaurantes() regenera el documento si hace falta.
   const todos = await listarRestaurantes({ all: true });
   const items = todos.items.map(versionMapa);
-  await regenerarCatalogoMapa(items);
   return ciudad ? items.filter((r) => r.ciudad === ciudad) : items;
 }
 
 function invalidarCatalogo() {
   cache = { at: 0, items: null, byId: null };
+}
+
+/**
+ * Invalida la caché tras modificar un restaurante y marca el documento
+ * _catalogo como obsoleto: un cambio de nombre no altera el recuento de la
+ * colección, así que sin este marcador la siguiente carga hidrataría la copia
+ * vieja del documento y el buscador seguiría mostrando el nombre anterior.
+ */
+function invalidarCatalogoPorEscritura() {
+  sucio = true;
+  invalidarCatalogo();
 }
 
 function estadisticasCache() {
@@ -406,7 +454,7 @@ async function actualizarRestaurante(restaurantId, uid, data) {
   update.updatedAt = new Date();
 
   await db.collection("restaurants").doc(restaurantId).update(update);
-  invalidarCatalogo();
+  invalidarCatalogoPorEscritura();
   logger.info({ restaurantId, uid }, "Restaurant updated");
   return { updated: true };
 }
@@ -420,6 +468,7 @@ module.exports = {
   obtenerPorEmail,
   actualizarRestaurante,
   invalidarCatalogo,
+  invalidarCatalogoPorEscritura,
   regenerarCatalogoMapa,
   estadisticasCache,
   DOC_CATALOGO,

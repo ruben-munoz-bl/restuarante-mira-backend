@@ -233,17 +233,27 @@ function makeCollection(name) {
 const mockDb = {
   collection: (name) => makeCollection(name),
   async runTransaction(fn) {
+    // Firestore exige que todas las lecturas se hagan antes de cualquier
+    // escritura: sin esto, los tests no detectan "read after write" (que en
+    // producción revienta la transacción y devuelve 500).
+    let escrituras = 0;
     const tx = {
       async get(ref) {
+        if (escrituras > 0) {
+          throw new Error("Firestore transactions require all reads to be executed before all writes.");
+        }
         return ref.get();
       },
       set(ref, data, opts) {
+        escrituras += 1;
         return ref.set(data, opts);
       },
       update(ref, data) {
+        escrituras += 1;
         return ref.update(data);
       },
       delete(ref) {
+        escrituras += 1;
         return ref.delete();
       },
     };

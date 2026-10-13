@@ -84,6 +84,30 @@ test("el catálogo ligero se lee desde 1 documento tras un arranque en frío", a
   assert.equal(statsDespues.cargas, statsAntes.cargas, "no debe releer los restaurantes sueltos");
 });
 
+test("catálogo obsoleto: se reconstruye si _catalogo no refleja la colección", async () => {
+  seed("restaurants", "r-origen", { nombre: "Origen", uid: "u-x", rating_yelp: 4 });
+  restaurantService.invalidarCatalogo();
+  await restaurantService.listarMapa(); // genera el documento con los restaurantes actuales
+
+  const antes = store.get("restaurants").get(restaurantService.DOC_CATALOGO);
+  assert.equal(antes.total, 4, "3 del seedBase + r-origen");
+
+  // Alta hecha fuera de este proceso (p. ej. aprobación de un negocio en
+  // otra instancia): aquí no se invalida nada.
+  seed("restaurants", "r-nuevo", { nombre: "Restaurante Nuevo", uid: "u-y", rating_yelp: 5, ciudad: "Sevilla" });
+  restaurantService.invalidarCatalogo(); // arranque en frío en esta instancia
+
+  const mapa = await request(app).get("/v1/restaurants/mapa");
+  assert.equal(mapa.status, 200);
+  assert.ok(mapa.body.items.some((i) => i.id === "r-nuevo"), "el mapa no debe servir un _catalogo obsoleto");
+
+  const despues = store.get("restaurants").get(restaurantService.DOC_CATALOGO);
+  assert.equal(despues.total, 5, "debe regenerar el documento con el recuento real");
+
+  const busca = await request(app).get("/v1/restaurants?q=Nuevo");
+  assert.ok(busca.body.items.some((i) => i.id === "r-nuevo"), "la búsqueda tampoco");
+});
+
 /* ───────── POST /v1/points/discount/claim ───────── */
 
 test("POST /v1/points/discount/claim sin token → 401", async () => {
@@ -377,4 +401,137 @@ test("dashboard: my-restaurants sin restaurantes → 200 lista vacía (no 404)",
   const res = await request(app).get("/v1/dashboard/my-restaurants").set("Authorization", `Bearer ${tokens.empresa}`);
   assert.equal(res.status, 200);
   assert.deepEqual(res.body, []);
+});
+
+test("dashboard: si el restaurantId principal fue borrado, cae en el siguiente existente", async () => {
+  seed("restaurants", "r-viva", { nombre: "Viva", uid: "u-emp", rating_yelp: 4 });
+  seed("usuarios", "u-emp", {
+    uid: "u-emp", tipo: "empresa", email: "emp@test.local",
+    restaurantId: "r-borrada", restaurantIds: ["r-borrada", "r-viva"],
+  });
+
+  const res = await request(app).get("/v1/dashboard/my-restaurant").set("Authorization", `Bearer ${tokens.empresa}`);
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.restaurante.id, "r-viva");
+});
+
+test("dashboard: el restaurante asignado ya no existe → 404 con mensaje claro", async () => {
+  seed("usuarios", "u-emp", {
+    uid: "u-emp", tipo: "empresa", email: "emp@test.local", restaurantId: "desaparecido",
+  });
+
+  const res = await request(app).get("/v1/dashboard/my-restaurant").set("Authorization", `Bearer ${tokens.empresa}`);
+  assert.equal(res.status, 404);
+  assert.match(res.body.message, /ya no existe/);
+});
+
+test("dashboard: editar un restaurante refresca _catalogo (el nombre nuevo se ve al instante)", async () => {
+  seed("restaurants", "r-ren", { nombre: "Nombre Viejo", uid: "u-emp", rating_yelp: 4 });
+  restaurantService.invalidarCatalogo();
+  await restaurantService.listarRestaurantes({ all: true }); // deja el nombre viejo en _catalogo
+
+  const res = await request(app)
+    .put("/v1/dashboard/restaurant/r-ren")
+    .set("Authorization", `Bearer ${tokens.admin}`)
+    .send({ nombre: "Nombre Nuevo" });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+
+  // Un cambio de nombre no altera el recuento: lo fuerza el marcador de escritura.
+  const lista = await restaurantService.listarRestaurantes({ all: true });
+  assert.ok(
+    lista.items.some((i) => i.id === "r-ren" && i.nombre === "Nombre Nuevo"),
+    "la búsqueda debe ver el nombre nuevo",
+  );
+
+  const cat = store.get("restaurants").get(restaurantService.DOC_CATALOGO);
+  const entrada = cat.restaurantes.find((r) => r.id === "r-ren");
+  assert.equal(entrada.nombre, "Nombre Nuevo", "el documento _catalogo debe quedar regenerado");
+});
+
+/* ───────── Subida de ticket desde el panel ───────── */
+
+function seedReservaTicket(id = "res-tk") {
+  seed("restaurants", "r-tk", { nombre: "La Tasca", uid: "u-emp", comisionPct: 10, rating_yelp: 4 });
+  seed("usuarios", "u-emp", { uid: "u-emp", tipo: "empresa", email: "emp@test.local", restaurantId: "r-tk" });
+  seed("reservas", id, {
+    uid: "u-cli", restaurantId: "r-tk", restauranteId: "r-tk", nombreRestaurante: "La Tasca",
+    fecha: "2030-01-01", hora: "21:00", comensales: 4, estado: "pendiente",
+    codigo: "MIRA-TEST", ticketId: null,
+  });
+  return id;
+}
+
+test("dashboard: subir ticket crea el ticket, completa la reserva y suma finanzas", async () => {
+  const id = seedReservaTicket();
+
+  const res = await request(app)
+    .post(`/v1/dashboard/reservations/${id}/ticket`)
+    .set("Authorization", `Bearer ${tokens.empresa}`)
+    .send({ totalPagado: 100, asistio: true, fileName: "ticket.pdf" });
+
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.ok(res.body.ticketId, "debe devolver el id del ticket creado");
+
+  const tickets = [...store.get("tickets").values()];
+  assert.equal(tickets.length, 1);
+  assert.equal(tickets[0].importeComision, 10);
+  assert.equal(tickets[0].netoRestaurante, 90);
+
+  const reserva = store.get("reservas").get(id);
+  assert.equal(reserva.estado, "completada");
+  assert.equal(reserva.ticketId, res.body.ticketId);
+
+  const fin = store.get("finanzas_restaurante").get("r-tk");
+  assert.equal(fin.ingresosBrutos, 100);
+  assert.equal(fin.totalTickets, 1);
+});
+
+test("dashboard: subir ticket con importe inválido → 400 (no 500)", async () => {
+  const id = seedReservaTicket();
+
+  const res = await request(app)
+    .post(`/v1/dashboard/reservations/${id}/ticket`)
+    .set("Authorization", `Bearer ${tokens.empresa}`)
+    .send({ totalPagado: "", asistio: true });
+
+  assert.equal(res.status, 400, JSON.stringify(res.body));
+  assert.equal(res.body.error, "VALIDATION_ERROR");
+  assert.ok(!store.get("reservas").get(id).ticketId, "no debe crear ticket");
+});
+
+test("dashboard: subir ticket a reserva inexistente → 404 (no 500)", async () => {
+  const res = await request(app)
+    .post("/v1/dashboard/reservations/no-existe/ticket")
+    .set("Authorization", `Bearer ${tokens.empresa}`)
+    .send({ totalPagado: 20, asistio: true });
+
+  assert.equal(res.status, 404, JSON.stringify(res.body));
+  assert.equal(res.body.error, "NOT_FOUND");
+});
+
+test("dashboard: subir el ticket dos veces → 409 (el frontend espera ese código)", async () => {
+  const id = seedReservaTicket();
+  const url = `/v1/dashboard/reservations/${id}/ticket`;
+
+  const primera = await request(app).post(url).set("Authorization", `Bearer ${tokens.empresa}`).send({ totalPagado: 25 });
+  assert.equal(primera.status, 201, JSON.stringify(primera.body));
+
+  const segunda = await request(app).post(url).set("Authorization", `Bearer ${tokens.empresa}`).send({ totalPagado: 30 });
+  assert.equal(segunda.status, 409, JSON.stringify(segunda.body));
+  assert.equal(segunda.body.error, "CONFLICT");
+  assert.equal([...store.get("tickets").values()].length, 1, "no debe crear un segundo ticket");
+});
+
+test("dashboard: subir ticket en no-show marca la reserva como no_show", async () => {
+  const id = seedReservaTicket();
+
+  const res = await request(app)
+    .post(`/v1/dashboard/reservations/${id}/ticket`)
+    .set("Authorization", `Bearer ${tokens.empresa}`)
+    .send({ totalPagado: "45,50", asistio: false });
+
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  const reserva = store.get("reservas").get(id);
+  assert.equal(reserva.estado, "no_show");
+  assert.equal(reserva.totalPagado, 45.5, "acepta importes con coma");
 });

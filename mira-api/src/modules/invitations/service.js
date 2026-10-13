@@ -73,14 +73,17 @@ async function onInvitadoReservaCompletada(invitadoUid) {
 
   if (nuevasReservas >= INVITACIONES_RESERVAS_REQUERIDAS) {
     await db.runTransaction(async (tx) => {
+      // Lecturas antes de cualquier escritura (regla de Firestore): si no,
+      // tx.get() lanza "read after write" y la invitación nunca se premia.
+      const userRef = db.collection("usuarios").doc(inv.creadorUid);
+      const userSnap = await tx.get(userRef);
+
       tx.update(db.collection("invitaciones").doc(inviteDoc.id), {
         reservasAmigo: nuevasReservas,
         estado: "aceptada",
         updatedAt: new Date(),
       });
 
-      const userRef = db.collection("usuarios").doc(inv.creadorUid);
-      const userSnap = await tx.get(userRef);
       if (!userSnap.exists) return;
       const userData = userSnap.data();
       const nuevoSaldo = (userData.saldoPuntos || 0) + PUNTOS_INVITACION;

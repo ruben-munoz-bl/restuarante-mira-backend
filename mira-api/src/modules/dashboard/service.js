@@ -21,7 +21,13 @@ async function fetchReservasForRestaurant(restaurantId) {
         const arr = snap2.docs.map((d) => ({ id: d.id, ...d.data() }));
         arr.sort((a, b) => `${b.fecha || ""} ${b.hora || ""}`.localeCompare(`${a.fecha || ""} ${a.hora || ""}`));
         return arr;
-      } catch {
+      } catch (e2) {
+        // No devolvemos [] en silencio: un fallo aquí es un panel en 0
+        // reservas sin ninguna pista. Se deja constancia en los logs.
+        logger.error(
+          { restaurantId, field, error: e2.message, errorInicial: e.message },
+          "no se pudieron leer las reservas del restaurante",
+        );
         return [];
       }
     }
@@ -197,17 +203,31 @@ function notFoundError() {
   return err;
 }
 
-async function resolveRestaurantId(uid, restaurantIdOverride) {
-  if (restaurantIdOverride) return restaurantIdOverride;
+/**
+ * Resuelve qué restaurante ve el panel de este usuario y devuelve también su
+ * documento, para no tener que releerlo justo después.
+ *
+ * El "principal" (usuarios.restaurantId) se comprueba antes de devolverlo:
+ * si ese documento se borró, el panel entero caía en 404 aunque el usuario
+ * tuviera otros restaurantes vivos en restaurantIds o por uid.
+ */
+async function resolverRestaurante(uid, restaurantIdOverride) {
+  if (restaurantIdOverride) return { id: restaurantIdOverride, doc: null };
   const userDoc = await db.collection("usuarios").doc(uid).get();
   const userData = userDoc.exists ? userDoc.data() : {};
 
-  // restaurantId es el "principal"; si no existe, el primero de restaurantIds.
-  // Antes se caía a "el primero por uid", que devolvía un restaurante
-  // arbitrario cuando el usuario tenía varios.
-  if (userData.restaurantId) return userData.restaurantId;
-  if (Array.isArray(userData.restaurantIds) && userData.restaurantIds.length) {
-    return userData.restaurantIds[0];
+  const candidatos = [];
+  const addCandidato = (id) => {
+    const s = id == null ? "" : String(id);
+    if (s && !candidatos.includes(s)) candidatos.push(s);
+  };
+  addCandidato(userData.restaurantId);
+  if (Array.isArray(userData.restaurantIds)) userData.restaurantIds.forEach(addCandidato);
+
+  for (const id of candidatos) {
+    const snap = await db.collection("restaurants").doc(id).get().catch(() => null);
+    if (snap && snap.exists) return { id, doc: snap };
+    logger.warn({ uid, restaurantId: id }, "el restaurante asignado al usuario ya no existe");
   }
 
   const snap = await db.collection("restaurants").where("uid", "==", uid).limit(1).get();
@@ -215,18 +235,21 @@ async function resolveRestaurantId(uid, restaurantIdOverride) {
     // No es que el restaurante no exista: es que este usuario no tiene ninguno
     // asignado. Un admin que aprueba propuestas ajenas entra por aquí.
     const err = new Error(
-      "Este usuario no tiene ningún restaurante asignado. Si buscas uno concreto, pásalo por query (?restaurantId=) o usa /v1/restaurants/:id.",
+      candidatos.length
+        ? "El restaurante asignado a esta cuenta ya no existe. Si buscas uno concreto, pásalo por query (?restaurantId=)."
+        : "Este usuario no tiene ningún restaurante asignado. Si buscas uno concreto, pásalo por query (?restaurantId=) o usa /v1/restaurants/:id.",
     );
     err.status = 404;
     err.code = "NOT_FOUND";
     throw err;
   }
-  return snap.docs[0].id;
+  return { id: snap.docs[0].id, doc: snap.docs[0] };
 }
 
 async function getMyRestaurant(uid, restaurantIdOverride, rol = null) {
-  const restaurantId = await resolveRestaurantId(uid, restaurantIdOverride);
-  const restDoc = await db.collection("restaurants").doc(restaurantId).get();
+  const resuelto = await resolverRestaurante(uid, restaurantIdOverride);
+  const restaurantId = resuelto.id;
+  const restDoc = resuelto.doc || (await db.collection("restaurants").doc(restaurantId).get());
   if (!restDoc.exists) {
     const err = new Error("Restaurante no encontrado");
     err.status = 404;
@@ -646,6 +669,9 @@ async function updateRestaurant(restaurantId, data) {
     throw err;
   }
   await ref.update(update);
+  // Marca _catalogo como sucio: un cambio de nombre no cambia el recuento y
+  // sin esto el buscador seguiría sirviendo la copia vieja del documento.
+  require("../restaurants/service").invalidarCatalogoPorEscritura();
   logger.info({ restaurantId, fields: Object.keys(update) }, "Restaurant updated");
   return { updated: true };
 }
@@ -660,7 +686,9 @@ async function eliminarRestaurante(restaurantId) {
     throw err;
   }
   await ref.delete();
-  require("../restaurants/service").invalidarCatalogo();
+  // Marca el catálogo como sucio: el recuento cambia pero un borrado y un alta
+  // simultáneos lo dejarían igual, así que no nos fiamos solo del count.
+  require("../restaurants/service").invalidarCatalogoPorEscritura();
   logger.info({ restaurantId }, "Restaurant deleted");
   return { deleted: true, id: restaurantId };
 }

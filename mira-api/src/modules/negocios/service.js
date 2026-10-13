@@ -111,7 +111,7 @@ async function aprobarNegocio(negocioId) {
   });
 
   logger.info({ uid: n.uid, restaurantId: restRef.id }, "Negocio aprobado");
-  require("../restaurants/service").invalidarCatalogo();
+  require("../restaurants/service").invalidarCatalogoPorEscritura();
   return restRef.id;
 }
 

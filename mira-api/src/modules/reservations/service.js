@@ -35,6 +35,15 @@ function notFoundError() {
   return err;
 }
 
+// Error de negocio con su código HTTP. Sin `status`, el errorHandler responde
+// 500 "Error interno" y el frontend no puede distinguir un 409 de un fallo real.
+function errorDe(status, code, message) {
+  const err = new Error(message);
+  err.status = status;
+  err.code = code;
+  return err;
+}
+
 async function getDisponibilidad(restaurantId, fecha, hora, uid = null) {
   // La ficha del restaurante sale de la caché de catálogo (0 lecturas); el
   // aforo sí se lee de Firestore porque cambia con cada reserva.
@@ -50,9 +59,9 @@ async function getDisponibilidad(restaurantId, fecha, hora, uid = null) {
 
 async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, comensales, comentarios, usuario }) {
   const restId = restaurantId || restauranteId;
-  if (!SLOTS.includes(hora)) throw new Error("Hora no válida");
+  if (!SLOTS.includes(hora)) throw errorDe(400, "VALIDATION_ERROR", "Hora no válida");
   const n = Number(comensales);
-  if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("Comensales: 1-10");
+  if (!Number.isInteger(n) || n < 1 || n > 10) throw errorDe(400, "VALIDATION_ERROR", "Comensales: 1-10");
 
   const result = await db.runTransaction(async (tx) => {
     const restSnap = await tx.get(db.collection("restaurants").doc(restId));
@@ -70,6 +79,7 @@ async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, com
     if (ocupadas + ajenas >= limite) {
       const e = new Error("Completo a esa hora. Prueba otra franja.");
       e.code = "COMPLETO";
+      e.status = 409;
       throw e;
     }
 
@@ -114,16 +124,18 @@ async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, com
 async function cancelarReserva(reservaId, uid, esAdmin = false) {
   const reserva = await db.runTransaction(async (tx) => {
     const ref = db.collection("reservas").doc(reservaId);
+    // Todas las lecturas ANTES de cualquier escritura: Firestore rechaza
+    // tx.get() después de tx.update() ("read after write").
     const snap = await tx.get(ref);
-    if (!snap.exists) throw new Error("La reserva ya no existe.");
+    if (!snap.exists) throw errorDe(404, "NOT_FOUND", "La reserva ya no existe.");
     const r = snap.data();
-    if (r.estado === "cancelada") throw new Error("Ya estaba cancelada.");
-    if (!esAdmin && r.uid !== uid) throw new Error("No autorizado");
-
-    tx.update(ref, { estado: "cancelada", updatedAt: new Date() });
+    if (r.estado === "cancelada") throw errorDe(409, "CONFLICT", "Ya estaba cancelada.");
+    if (!esAdmin && r.uid !== uid) throw errorDe(403, "FORBIDDEN", "No autorizado");
 
     const aforoRef = db.collection("aforo").doc(aforoId(r.restaurantId, r.fecha, r.hora));
     const aforoSnap = await tx.get(aforoRef);
+
+    tx.update(ref, { estado: "cancelada", updatedAt: new Date() });
     const ocupadas = aforoSnap.exists ? Number(aforoSnap.data().ocupadas) || 0 : 0;
     tx.set(aforoRef, { ocupadas: Math.max(0, ocupadas - 1) }, { merge: true });
     return r;
@@ -171,7 +183,7 @@ async function otorgarPuntosReserva(reserva, multiplicadorBase) {
 async function completarReserva(reservaId, { uid, precioManual, emitidoPor } = {}) {
   const reservaRef = db.collection("reservas").doc(reservaId);
   const reservaSnap = await reservaRef.get();
-  if (!reservaSnap.exists) throw new Error("Reserva no encontrada");
+  if (!reservaSnap.exists) throw errorDe(404, "NOT_FOUND", "Reserva no encontrada");
   const reserva = { id: reservaSnap.id, ...reservaSnap.data() };
 
   if (reserva.estado === "completada") return { yaCompletada: true };
@@ -223,25 +235,32 @@ async function listarReservas(uid, { estado } = {}) {
 async function subirTicket(reservaId, { uid, totalPagado, asistio = true, fileName = "", tipoDocumento = "Ticket TPV" }) {
   const reservaRef = db.collection("reservas").doc(reservaId);
   const snap = await reservaRef.get();
-  if (!snap.exists) throw new Error("Reserva no encontrada");
+  if (!snap.exists) throw errorDe(404, "NOT_FOUND", "Reserva no encontrada");
   const r = snap.data();
-  if (r.ticketId) throw new Error("Esta reserva ya tiene un ticket registrado (máx. 1 por reserva)");
+  if (r.ticketId) throw errorDe(409, "CONFLICT", "Esta reserva ya tiene un ticket registrado (máx. 1 por reserva)");
 
   const yaExiste = await db.collection("tickets").where("reservaId", "==", reservaId).limit(1).get();
-  if (!yaExiste.empty) throw new Error("Esta reserva ya tiene un ticket registrado (máx. 1 por reserva)");
+  if (!yaExiste.empty) throw errorDe(409, "CONFLICT", "Esta reserva ya tiene un ticket registrado (máx. 1 por reserva)");
 
   const rid = String(r.restaurantId || r.restauranteId || "");
-  if (!rid) throw new Error("Reserva sin restaurante vinculado");
-  const total = Number(totalPagado);
-  if (!(total > 0)) throw new Error("Importe inválido");
+  if (!rid) throw errorDe(400, "VALIDATION_ERROR", "Reserva sin restaurante vinculado");
+  const total = Number(String(totalPagado ?? "").trim().replace(",", "."));
+  if (!Number.isFinite(total) || total <= 0) throw errorDe(400, "VALIDATION_ERROR", "Importe inválido");
   const restSnap = await db.collection("restaurants").doc(rid).get().catch(() => null);
   const comisionPct = Number(restSnap?.data?.()?.comisionPct) || Number(require("../../config/env").env.COMISION_PCT) || 8;
   const comision = Math.round((total * comisionPct) / 100 * 100) / 100;
   const neto = Math.round((total - comision) * 100) / 100;
   const comensales = Number(r.comensales) || 0;
   const nuevoEstado = asistio ? "completada" : "no_show";
+  const finanzasRef = db.collection("finanzas_restaurante").doc(rid);
 
-  await db.runTransaction(async (tx) => {
+  const { ticketId } = await db.runTransaction(async (tx) => {
+    // OJO: la lectura de finanzas va ANTES de cualquier escritura. Si se hace
+    // después de tx.set()/tx.update(), Firestore lanza "read after write" y la
+    // petición acaba en 500 (regresión: subir ticket siempre fallaba).
+    const finSnap = await tx.get(finanzasRef);
+    const fin = finSnap.exists ? finSnap.data() : {};
+
     const ticketRef = db.collection("tickets").doc();
     tx.set(ticketRef, {
       restaurantId: rid,
@@ -273,9 +292,6 @@ async function subirTicket(reservaId, { uid, totalPagado, asistio = true, fileNa
       updatedAt: new Date(),
       asistio: Boolean(asistio),
     });
-    const finanzasRef = db.collection("finanzas_restaurante").doc(rid);
-    const finSnap = await tx.get(finanzasRef);
-    const fin = finSnap.exists ? finSnap.data() : {};
     tx.set(finanzasRef, {
       restaurantId: rid,
       ingresosBrutos: (Number(fin.ingresosBrutos) || 0) + total,
@@ -305,14 +321,14 @@ async function subirTicket(reservaId, { uid, totalPagado, asistio = true, fileNa
     }
   }
 
-  logger.info({ reservaId, total, comision, nuevoEstado }, "Ticket uploaded");
-  return { ticketId: null, comision, neto, estado: nuevoEstado };
+  logger.info({ reservaId, ticketId, total, comision, nuevoEstado }, "Ticket uploaded");
+  return { ticketId, comision, neto, estado: nuevoEstado };
 }
 
 async function actualizarEstado(reservaId, status, { precioBase } = {}) {
   const reservaRef = db.collection("reservas").doc(reservaId);
   const snap = await reservaRef.get();
-  if (!snap.exists) throw new Error("Reserva no encontrada");
+  if (!snap.exists) throw errorDe(404, "NOT_FOUND", "Reserva no encontrada");
   const reserva = { id: snap.id, ...snap.data() };
   const estabaCompletada = reserva.estado === "completada";
 
