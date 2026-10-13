@@ -671,6 +671,8 @@ async function updateRestaurant(restaurantId, data) {
   await ref.update(update);
   // Marca _catalogo como sucio: un cambio de nombre no cambia el recuento y
   // sin esto el buscador seguiría sirviendo la copia vieja del documento.
+  // (invalidarCatalogoPorEscritura llama además a invalidarCatalogo, que pone
+  // el documento a generadoAt: 0 para el resto de instancias.)
   require("../restaurants/service").invalidarCatalogoPorEscritura();
   logger.info({ restaurantId, fields: Object.keys(update) }, "Restaurant updated");
   return { updated: true };
