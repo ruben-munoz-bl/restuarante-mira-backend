@@ -30,8 +30,18 @@ async function listarPendientes() {
   return list;
 }
 
-async function resolverIncidencia(id) {
-  await db.collection("contactos").doc(id).update({ estado: "resuelta" });
+async function resolverIncidencia(id, resolucion) {
+  const datos = {};
+  for (const campo of ["propuestaResolucion", "solucion", "encargado"]) {
+    const valor = String(resolucion?.[campo] || "").trim();
+    if (!valor) {
+      const err = new Error("La resolución requiere propuesta, solución y encargado");
+      err.status = 400;
+      throw err;
+    }
+    datos[campo] = valor;
+  }
+  await db.collection("contactos").doc(id).update({ ...datos, estado: "resuelta" });
   return { ok: true };
 }
 

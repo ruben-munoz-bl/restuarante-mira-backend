@@ -777,7 +777,10 @@ const TOOLS = [
     enabled: false,
     parameters: schema({
       contactoId: str("Identificador de la incidencia."),
-    }, ["contactoId"]),
+      propuestaResolucion: str("Propuesta de resolución obligatoria."),
+      solucion: str("Solución aplicada obligatoria."),
+      encargado: str("Responsable de la resolución."),
+    }, ["contactoId", "propuestaResolucion", "solucion", "encargado"]),
   },
 ];
 

@@ -43,9 +43,15 @@ router.get("/pending", verifyFirebaseAuth, authorize("admin"), async (req, res, 
   }
 });
 
-router.put("/:id/resolve", verifyFirebaseAuth, authorize("admin"), async (req, res, next) => {
+const resolverSchema = z.object({
+  propuestaResolucion: z.string().trim().min(1).max(4000),
+  solucion: z.string().trim().min(1).max(4000),
+  encargado: z.string().trim().min(1).max(200),
+});
+
+router.put("/:id/resolve", verifyFirebaseAuth, authorize("admin"), validate(resolverSchema), async (req, res, next) => {
   try {
-    const result = await contactoService.resolverIncidencia(req.params.id);
+    const result = await contactoService.resolverIncidencia(req.params.id, req.validated);
     res.json(result);
   } catch (err) {
     next(err);
