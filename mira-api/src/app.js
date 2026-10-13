@@ -25,6 +25,9 @@ function jsonReplacer(_key, value) {
 }
 
 app.set("json replacer", jsonReplacer);
+// Render pone un proxy delante: sin esto req.ip es la IP del proxy y todos los
+// usuarios compartirían el mismo cupo del rate limit global. 1 = solo el primer salto.
+app.set("trust proxy", 1);
 app.use(helmet());
 
 const LOCAL_ORIGINS = ["http://localhost:5173", "http://localhost:4173"];
