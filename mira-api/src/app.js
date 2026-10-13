@@ -40,7 +40,10 @@ app.use(requestId);
 app.use(middlewareMetricas);
 app.use(requestLogger);
 app.use(accessLog);
-app.use("/v1", rateLimit(60000, 300, (req) => `api:${req.ip}`));
+// Cupo amplio por IP: en una oficina o una demo muchos usuarios salen por la misma IP.
+// Solo frena abusos; ajustable con RATE_LIMIT_GLOBAL sin redeploy de código.
+const LIMITE_GLOBAL = Number(process.env.RATE_LIMIT_GLOBAL) || 1200;
+app.use("/v1", rateLimit(60000, LIMITE_GLOBAL, (req) => `api:${req.ip}`));
 
 app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });

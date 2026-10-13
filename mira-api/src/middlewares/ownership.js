@@ -12,7 +12,11 @@ async function comprobarRestaurante(id, user) {
   const perfil = await db.collection('usuarios').doc(user.uid).get();
   const p = perfil.exists ? perfil.data() : {};
   const asignados = [p.restaurantId, ...(Array.isArray(p.restaurantIds) ? p.restaurantIds : [])];
-  if (data.uid !== user.uid && data.ownerUid !== user.uid && !asignados.includes(id)) {
+  // Restaurantes antiguos enlazados solo por email: se acepta el email del token de
+  // Firebase (no se puede editar desde el perfil), nunca el email guardado en usuarios.
+  const emailToken = String(user.email || '').trim().toLowerCase();
+  const porEmail = Boolean(emailToken) && String(data.email || '').trim().toLowerCase() === emailToken;
+  if (data.uid !== user.uid && data.ownerUid !== user.uid && !asignados.includes(id) && !porEmail) {
     throw error(403, 'No tienes permiso sobre este restaurante');
   }
 }

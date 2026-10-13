@@ -28,7 +28,7 @@ TOKEN="<JWT ID token de Firebase>"
 En este orden, para todas las peticiones:
 
 1. `helmet()` — cabeceras de seguridad.
-2. `cors({ origin })` — lista exacta de `CORS_ALLOWED_ORIGINS`; por defecto solo localhost/127.0.0.1 en puertos 5173 y 4173. Sin cabecera Origin se permite el cliente HTTP; no hay comodines Vercel. Ver BUG-113 al final.
+2. `cors({ origin })` — si `CORS_ALLOWED_ORIGINS` está vacía (por defecto), política compatible: localhost:5173/4173 y cualquier `https://*.vercel.app`. Si tiene valor, solo esos orígenes exactos. Sin cabecera Origin (app móvil, curl) siempre se permite. Ver BUG-113 al final.
 3. `express.json()` — cuerpo JSON.
 4. `requestId` (`src/middlewares/errorHandler.js:24`) — usa la cabecera `x-request-id` del cliente o genera `req_<ts>_<rand>`, y responde siempre con la cabecera `X-Request-Id`.
 5. `middlewareMetricas` (`src/modules/metricas/metricas.js:53`) — instrumentación en memoria. **Excluye** `/health`, `/v1/metricas/*` y cualquier ruta que acabe en `/stream`.
@@ -3539,16 +3539,12 @@ silenciosamente truncado. No requiere nuevas variables de Render/Vercel.
 
 ### BUG-113 — CORS, idempotencia y validación P2
 
-**Configuración obligatoria en Render antes de desplegar:** establecer
-`CORS_ALLOWED_ORIGINS` con los orígenes exactos del frontend productivo y de cada
-preview autorizado, separados por comas. Añadir también localhost si se necesita
-usar la API remota desde desarrollo. El valor por defecto de `.env.example` solo
-permite localhost y 127.0.0.1 en 5173/4173; producción/previews se deniegan hasta
-configurarlos. No se admite `*.vercel.app`, protocolos distintos de HTTP(S),
-credenciales, rutas, query ni fragmentos. Una configuración inválida impide arrancar.
-Los dominios se canonicalizan como origen (se tolera slash final). El browser recibe
-Access-Control-Allow-Origin únicamente si coincide. Sin Origin siguen funcionando
-clientes HTTP/autenticados. CORS no sustituye autenticación ni pertenencia.
+**No hace falta configurar nada para desplegar.** Con `CORS_ALLOWED_ORIGINS` vacía (por defecto) se mantiene la política anterior: localhost:5173/4173 y cualquier `https://*.vercel.app`, así Vercel no se queda sin API. Si se rellena en Render, pasa a ser una lista estricta de orígenes exactos separados por comas: no admite comodines, protocolos distintos de HTTP(S), credenciales, rutas, query ni fragmentos, y una configuración inválida impide arrancar. Sin Origin siguen funcionando la app móvil y los clientes HTTP. CORS no sustituye a la autenticación ni a la comprobación de pertenencia.
+
+**Otros ajustes de compatibilidad (revisión de Claude):**
+- Rate limit global por IP: **1200 peticiones/min** por defecto (antes 300), configurable con `RATE_LIMIT_GLOBAL`. Varias personas detrás de la misma IP (oficina, demo) no se bloquean entre sí.
+- Pertenencia de restaurante (`middlewares/ownership.js`): además de `uid`, `ownerUid` y `restaurantIds`, se acepta que el email del **token de Firebase** coincida con `restaurants.email`. Así los restaurantes antiguos enlazados solo por email no pierden acceso. No se usa el email del perfil, que sí se puede editar.
+- `GET /v1/dashboard/my-restaurant` devuelve como máximo 5000 tickets (antes, sin límite tras BUG-106), para que un restaurante con mucho histórico no ralentice el panel.
 
 Vercel no necesita una nueva variable del frontend; al crear un preview cuyo acceso
 se desee, añadir explícitamente su origen a la variable de Render y reiniciar la API.

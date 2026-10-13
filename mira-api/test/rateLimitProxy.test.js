@@ -1,12 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+process.env.RATE_LIMIT_GLOBAL = "300";
 require("./helpers/mockFirebase");
 const request = require("supertest");
 const app = require("../src/app");
 const { clearRateLimits } = require("../src/middlewares/rateLimit");
 
 // Detrás del proxy de Render cada usuario llega con su IP en X-Forwarded-For.
-// El cupo global (300/min) debe ser por usuario, no compartido por toda la web.
+// El cupo global (aquí 300/min; en producción 1200 por defecto) debe ser por usuario, no compartido por toda la web.
 test("rate limit global: cada IP real tiene su propio cupo detrás del proxy", async () => {
   clearRateLimits();
   for (let i = 0; i < 300; i++) {

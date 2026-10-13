@@ -14,7 +14,8 @@ AI_MAX_TOKENS: z.coerce.number().default(2048),
 // Flag de tools: "all" = todas (por defecto). "" = solo las 7 core de Fase 1.
 // O lista separada por comas para activar solo tools concretas.
 AI_ENABLED_TOOLS: z.string().default("all"),
-  CORS_ALLOWED_ORIGINS: z.string().default(require("../middlewares/corsOrigins").DEFAULT_CORS_ORIGINS),
+  // Vacía = política compatible (localhost + *.vercel.app). Con valor = solo esos orígenes exactos.
+  CORS_ALLOWED_ORIGINS: z.string().default(""),
   PORT: z.coerce.number().default(3000),
   PROJECT_ID: z.string().default("restaurante-mira-18e0c"),
   GOOGLE_APPLICATION_CREDENTIALS: z.string().optional(),

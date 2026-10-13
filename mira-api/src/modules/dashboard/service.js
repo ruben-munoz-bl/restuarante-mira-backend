@@ -247,7 +247,7 @@ async function resolverRestaurante(uid, restaurantIdOverride) {
   return { id: snap.docs[0].id, doc: snap.docs[0] };
 }
 
-async function getMyRestaurant(uid, restaurantIdOverride, rol = null) {
+async function getMyRestaurant(uid, restaurantIdOverride, rol = null, emailToken = null) {
   const resuelto = await resolverRestaurante(uid, restaurantIdOverride);
   const restaurantId = resuelto.id;
   const restDoc = resuelto.doc || (await db.collection("restaurants").doc(restaurantId).get());
@@ -261,14 +261,14 @@ async function getMyRestaurant(uid, restaurantIdOverride, rol = null) {
   // Con ?restaurantId= no se comprueba la pertenencia: cualquiera podría ver
   // el panel de otro. Los admins sí pueden (gestionan la plataforma).
   if (restaurantIdOverride) {
-    await require("../../middlewares/ownership").comprobarRestaurante(restaurantId, { uid, role: rol });
+    await require("../../middlewares/ownership").comprobarRestaurante(restaurantId, { uid, role: rol, email: emailToken });
   }
   const restaurante = { id: restDoc.id, ...data };
 
   const [reservas, ticketsSnap, finanzasSnap] = await Promise.all([
     fetchReservasForRestaurant(restaurantId),
-    db.collection("tickets").where("restaurantId", "==", restaurantId).orderBy("createdAt", "desc").get().catch(async () =>
-      db.collection("tickets").where("restaurantId", "==", restaurantId).get(),
+    db.collection("tickets").where("restaurantId", "==", restaurantId).orderBy("createdAt", "desc").limit(5000).get().catch(async () =>
+      db.collection("tickets").where("restaurantId", "==", restaurantId).limit(5000).get(),
     ),
     db.collection("finanzas_restaurante").doc(restaurantId).get().catch(() => ({ exists: () => false, data: () => null })),
   ]);

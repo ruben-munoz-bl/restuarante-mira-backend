@@ -7,9 +7,21 @@ const app = require('../src/app');
 const { clearRateLimits, idempotency } = require('../src/middlewares/rateLimit');
 test.beforeEach(() => { seedBase(); clearRateLimits(); });
 
-test('CORS no autoriza un preview Vercel ajeno por su sufijo', async () => {
- const r=await request(app).get('/health').set('Origin','https://atacante.vercel.app');
- assert.equal(r.headers['access-control-allow-origin'], undefined);
+test('CORS sin configurar mantiene la política anterior para no romper Vercel', async () => {
+ const { crearPoliticaCors } = require('../src/middlewares/corsOrigins');
+ const p = crearPoliticaCors('');
+ assert.equal(p('https://mira-front.vercel.app'), true);
+ assert.equal(p('http://localhost:5173'), true);
+ assert.equal(p(undefined), true);
+ assert.equal(p('https://evil.example'), false);
+ assert.equal(p('http://algo.vercel.app'), false);
+});
+
+test('CORS configurado no autoriza un preview Vercel ajeno por su sufijo', async () => {
+ const { crearPoliticaCors } = require('../src/middlewares/corsOrigins');
+ const p = crearPoliticaCors('https://prod.example');
+ assert.equal(p('https://atacante.vercel.app'), false);
+ assert.equal(p('https://prod.example'), true);
 });
 
 test('idempotencia separa ruta, método y usuario; cuerpo distinto da conflicto', async () => {
@@ -92,4 +104,12 @@ test('validación admite promoción vigente y reserva con comensales numéricos 
  seed('restaurants','propio',{nombre:'Propio',uid:'u-emp'});
  const promo=await request(app).post('/v1/promotions').set('Authorization',`Bearer ${tokens.empresa}`).send({restauranteId:'propio',fechaInicio:'2026-10-01',fechaFin:'2026-10-31',presupuestoTotal:100,cpc:0.2,puntosExtraPorReserva:20});assert.equal(promo.status,201);
  const reserva=await request(app).post('/v1/reservations').set('Authorization',`Bearer ${tokens.cliente}`).send({restaurantId:'r1',fecha:'2099-12-01',hora:'13:00',comensales:'2'});assert.equal(reserva.status,201);
+});
+
+test('dueño enlazado solo por email: se acepta el email del token, no el del perfil', async () => {
+ const { comprobarRestaurante } = require('../src/middlewares/ownership');
+ seed('restaurants','por-email',{nombre:'Antiguo',email:'Dueno@Test.local'});
+ await comprobarRestaurante('por-email',{uid:'u-x',role:'empresa',email:'dueno@test.local'});
+ await assert.rejects(comprobarRestaurante('por-email',{uid:'u-x',role:'empresa',email:'otro@test.local'}), /permiso/);
+ await assert.rejects(comprobarRestaurante('por-email',{uid:'u-x',role:'empresa'}), /permiso/);
 });
