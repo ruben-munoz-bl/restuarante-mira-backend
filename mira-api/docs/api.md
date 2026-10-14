@@ -1685,6 +1685,27 @@ Router: `src/modules/invitations/routes.js`. Servicio: `src/modules/invitations/
 
 Flujo: un cliente genera un código (8 caracteres sin vocales ambiguas) para un email; el invitado lo acepta y, tras `INVITACIONES_RESERVAS_REQUERIDAS` (2) reservas completadas, ambos reciben `PUNTOS_INVITACION` (200). `onInvitadoReservaCompletada` es invocado desde `reservations/service` al completar una reserva.
 
+### Configuración SMTP de invitaciones (BUG-120)
+
+El servicio guarda primero la invitación en Firestore y después envía un correo de texto con Nodemailer. Incluye el código y el enlace `FRONTEND_URL/#/registro?invite=CODIGO`. La validación del email es exclusivamente de formato (en frontend y backend); no consulta DNS ni verifica que exista el buzón.
+
+En **Render → servicio mira-api → Environment**, configurar:
+
+| Variable | Valor |
+|---|---|
+| `SMTP_HOST` | `smtp.gmail.com` |
+| `SMTP_PORT` | `465` (TLS directo); `587` utiliza STARTTLS obligatorio |
+| `SMTP_USER` | Cuenta de Gmail remitente |
+| `SMTP_PASS` | Contraseña de aplicación de Google, guardada solo en Render |
+| `MAIL_FROM` | Remitente autorizado, por ejemplo `MIRA <cuenta@gmail.com>`; si está vacío se usa `SMTP_USER` |
+| `FRONTEND_URL` | URL HTTPS pública del frontend, sin hash ni ruta de registro |
+
+**Render Free bloquea tráfico saliente a los puertos SMTP 25, 465 y 587. Para Gmail SMTP desde Render es necesaria una instancia de pago**, según [Render](https://render.com/docs/free). Crear la contraseña de aplicación con la verificación en dos pasos activada, según [Google](https://support.google.com/mail/answer/185833).
+
+Guardar las variables y redesplegar el backend con la dependencia `nodemailer`. No añadir credenciales a Git. La URL por defecto es local y debe sustituirse en Render. Sin `SMTP_USER` o `SMTP_PASS`, se registra un aviso y se devuelve 201 conservando la invitación. Si SMTP falla, también se conserva y se registra el código del error sin credenciales ni email; no se reintenta automáticamente. El mensaje «¡Invitación enviada!» confirma la creación de la invitación, no la entrega al buzón. El proveedor puede aplicar límites de envío.
+
+`GET /v1/invite/my` recupera las enviadas del usuario autenticado. Se ordenan en memoria por `createdAt` para no requerir un índice compuesto de Firestore. El panel espera la restauración de Firebase Auth después de F5 y vuelve a solicitar la lista; Mi cuenta también la carga al montar con sesión.
+
 ### 11.1 `POST /v1/invite`
 
 | Campo | Valor |

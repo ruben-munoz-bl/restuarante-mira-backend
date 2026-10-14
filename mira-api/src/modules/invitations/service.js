@@ -2,7 +2,15 @@ const { db } = require("../../middlewares/verifyFirebaseAuth");
 const { logger } = require("../../middlewares/errorHandler");
 const { generarInviteCode, INVITACIONES_MAX_MES, INVITACIONES_RESERVAS_REQUERIDAS, PUNTOS_INVITACION } = require("../../config/constants");
 
+const { enviarInvitacion } = require("./mailer");
+
 async function crearInvitacion(uid, emailInvitado) {
+  emailInvitado = String(emailInvitado || "").trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailInvitado)) {
+    const error = new Error("No existe la dirección, compruebe antes de volver a enviar");
+    error.status = 400;
+    throw error;
+  }
   const userSnap = await db.collection("usuarios").doc(uid).get();
   const userData = userSnap.exists ? userSnap.data() : {};
 
@@ -32,7 +40,8 @@ async function crearInvitacion(uid, emailInvitado) {
     createdAt: new Date(),
   });
 
-  logger.info({ uid, emailInvitado, inviteId: docRef.id }, "Invitation created");
+  await enviarInvitacion({ email: emailInvitado, codigo });
+  logger.info({ uid, inviteId: docRef.id }, "Invitation created");
   return { id: docRef.id, codigo, email: emailInvitado, estado: "pendiente" };
 }
 
@@ -108,8 +117,10 @@ async function onInvitadoReservaCompletada(invitadoUid, reservaId) {
 }
 
 async function getMyInvites(uid) {
-  const enviadasSnap = await db.collection("invitaciones").where("creadorUid", "==", uid).orderBy("createdAt", "desc").get();
+  const enviadasSnap = await db.collection("invitaciones").where("creadorUid", "==", uid).get();
   const enviadas = enviadasSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const fecha = (v) => v?.toDate ? v.toDate().getTime() : new Date(v).getTime();
+  enviadas.sort((a, b) => fecha(b.createdAt) - fecha(a.createdAt));
   const aceptadas = enviadas.filter((inv) => inv.estado === "aceptada").length;
   return { enviadas, aceptadas, puntosTotales: aceptadas * PUNTOS_INVITACION, invitaciones: enviadas };
 }

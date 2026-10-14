@@ -6,7 +6,8 @@ const invitationService = require("./service");
 
 const router = Router();
 
-const inviteSchema = z.object({ email: z.string().email().optional(), emailInvitado: z.string().email().optional() })
+const emailSchema = z.string().trim().regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "No existe la dirección, compruebe antes de volver a enviar");
+const inviteSchema = z.object({ email: emailSchema.optional(), emailInvitado: emailSchema.optional() })
   .refine((d) => d.email || d.emailInvitado, { message: "email requerido" });
 
 router.post("/", verifyFirebaseAuth, validate(inviteSchema), async (req, res, next) => {
