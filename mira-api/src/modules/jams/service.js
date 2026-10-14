@@ -138,6 +138,17 @@ function salir(codigo, uid) {
   });
 }
 
+/** Portada o foto de perfil de la sala (solo el anfitrión). dataUrl null la quita. */
+function ponerFoto(codigo, uid, tipo, dataUrl) {
+  return enExclusiva(String(codigo).toUpperCase(), async () => {
+    const jam = await obtenerDentro(codigo);
+    if (uid !== jam.anfitrionUid) throw error("Solo el anfitrión puede cambiar las fotos", "FORBIDDEN", 403);
+    if (dataUrl !== null && !logica.fotoValida(tipo, dataUrl)) throw error("La imagen no es válida o pesa demasiado", "FOTO_INVALIDA", 400);
+    jam.fotos = { ...(jam.fotos || {}), [tipo]: dataUrl };
+    return guardar(jam);
+  });
+}
+
 function cancelar(codigo, uid) {
   return enExclusiva(String(codigo).toUpperCase(), async () => {
     const jam = await obtenerDentro(codigo);
@@ -236,4 +247,4 @@ function _reset() {
   eventos.removeAllListeners();
 }
 
-module.exports = { crear, obtener, unirse, votar, salir, cancelar, cerrar, mias, cerrarVencidas, suscribir, _reset };
+module.exports = { crear, obtener, unirse, votar, salir, cancelar, ponerFoto, cerrar, mias, cerrarVencidas, suscribir, _reset };

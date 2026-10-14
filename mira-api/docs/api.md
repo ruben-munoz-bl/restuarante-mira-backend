@@ -2553,6 +2553,26 @@ curl -X POST "$BASE/v1/jams/K7M2QX/cerrar" -H "Authorization: Bearer $TOKEN"
 curl -X POST "$BASE/v1/jams/K7M2QX/cancelar" -H "Authorization: Bearer $TOKEN"
 ```
 
+### 19.10 `PUT /v1/jams/:codigo/foto`
+
+| Campo | Valor |
+|---|---|
+| Método / Ruta | `PUT /v1/jams/:codigo/foto` |
+| Fichero | `routes.js` |
+| Auth | `verifyFirebaseAuth` + `rateLimit(60000, 10)` |
+| Roles | Solo el anfitrión (comprobado en servicio) |
+| Path | `codigo` |
+| Body | `{ tipo: "portada" \| "perfil", dataUrl: string \| null }` |
+| Respuesta | `200 VistaPublica` (con `portada` y `foto`) |
+| Errores | `400 FOTO_INVALIDA` / `VALIDATION_ERROR`; `403 FORBIDDEN`; `404` |
+
+`ponerFoto(codigo, uid, tipo, dataUrl)` guarda la imagen en `jams/{codigo}.fotos.{portada|perfil}` (sin Firebase Storage, que exige el plan Blaze). El navegador la recorta y comprime antes de enviarla; el servidor solo acepta `data:image/(jpeg|webp|png);base64,…` de hasta 90 000 caracteres (portada) o 30 000 (perfil), por debajo del límite de 100 kB de `express.json()`. `dataUrl: null` quita la foto. La vista pública expone `portada` y `foto` (null si no hay).
+
+```bash
+curl -X PUT "$BASE/v1/jams/K7M2QX/foto" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"tipo":"perfil","dataUrl":"data:image/webp;base64,UklGR..."}'
+```
+
 ---
 
 ## 20. Métricas en directo — `/v1/metricas`

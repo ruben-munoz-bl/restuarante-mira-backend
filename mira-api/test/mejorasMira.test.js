@@ -191,6 +191,22 @@ describe("reserva en grupo (JAM)", () => {
     assert.equal(res.body.resultado.cerradaPor, "automatico");
   });
 
+  test("fotos de la sala: solo el anfitrión, formato y tamaño limitados", async () => {
+    const creada = await request(app).post("/v1/jams").set(auth(tokens.cliente)).send(propuesta());
+    const { codigo } = creada.body;
+    const foto = `data:image/webp;base64,${"A".repeat(200)}`;
+    const ok = await request(app).put(`/v1/jams/${codigo}/foto`).set(auth(tokens.cliente)).send({ tipo: "portada", dataUrl: foto });
+    assert.equal(ok.status, 200);
+    assert.equal(ok.body.portada, foto);
+    assert.equal((await request(app).get(`/v1/jams/${codigo}`)).body.portada, foto);
+    assert.equal((await request(app).put(`/v1/jams/${codigo}/foto`).set(auth(tokens.cliente2)).send({ tipo: "perfil", dataUrl: foto })).status, 403);
+    assert.equal((await request(app).put(`/v1/jams/${codigo}/foto`).set(auth(tokens.cliente)).send({ tipo: "perfil", dataUrl: "javascript:alert(1)" })).status, 400);
+    const grande = `data:image/jpeg;base64,${"A".repeat(40000)}`;
+    assert.equal((await request(app).put(`/v1/jams/${codigo}/foto`).set(auth(tokens.cliente)).send({ tipo: "perfil", dataUrl: grande })).status, 400);
+    const quitada = await request(app).put(`/v1/jams/${codigo}/foto`).set(auth(tokens.cliente)).send({ tipo: "portada", dataUrl: null });
+    assert.equal(quitada.body.portada, null);
+  });
+
   test("404 para un código inexistente y validación de la propuesta", async () => {
     assert.equal((await request(app).get("/v1/jams/ZZZZZZ")).status, 404);
     const mala = await request(app).post("/v1/jams").set(auth(tokens.cliente)).send({ ...propuesta(), franjas: [{ fecha: "2020-01-01", hora: "21:00" }] });

@@ -83,11 +83,23 @@ function validarPropuesta({ titulo, restaurantes, franjas, cierraEnMin }, { slot
 }
 
 /** Vista pública de la sala: sin uids ni emails, con el recuento ya hecho. */
+// Fotos de la sala: imagen ya comprimida en el navegador y guardada en el propio
+// documento (sin Storage). Límites en caracteres del data URL para no inflar la
+// sala, que se reenvía entera en cada actualización en directo.
+const MAX_FOTO = { portada: 90000, perfil: 30000 };
+const RE_FOTO = /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+function fotoValida(tipo, dataUrl) {
+  return Boolean(MAX_FOTO[tipo]) && typeof dataUrl === "string" && dataUrl.length <= MAX_FOTO[tipo] && RE_FOTO.test(dataUrl);
+}
+
 function vistaPublica(jam, uidSolicitante = null) {
   const recuento = recontar(jam);
   return {
     codigo: jam.codigo,
     titulo: jam.titulo,
+    portada: jam.fotos?.portada || null,
+    foto: jam.fotos?.perfil || null,
     anfitrion: jam.anfitrionNombre,
     estado: jam.estado,
     cierraEn: jam.cierraEn,
@@ -116,5 +128,5 @@ function vistaPublica(jam, uidSolicitante = null) {
 }
 
 module.exports = {
-  MAX_RESTAURANTES, MAX_FRANJAS, MAX_PARTICIPANTES, generarCodigo, idPublico, recontar, combinaciones, validarPropuesta, vistaPublica,
+  MAX_RESTAURANTES, MAX_FRANJAS, MAX_PARTICIPANTES, generarCodigo, idPublico, recontar, combinaciones, validarPropuesta, vistaPublica, MAX_FOTO, fotoValida,
 };

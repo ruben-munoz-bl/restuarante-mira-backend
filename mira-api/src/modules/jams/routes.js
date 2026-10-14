@@ -96,6 +96,19 @@ router.put("/:codigo/voto", verifyFirebaseAuth, rateLimit(60000, 60), validate(v
   }
 });
 
+const fotoSchema = z.object({
+  tipo: z.enum(["portada", "perfil"]),
+  dataUrl: z.string().max(100000).nullable(),
+});
+
+router.put("/:codigo/foto", verifyFirebaseAuth, rateLimit(60000, 10), validate(fotoSchema), async (req, res, next) => {
+  try {
+    res.json(vistaPublica(await svc.ponerFoto(req.params.codigo, req.user.uid, req.validated.tipo, req.validated.dataUrl), req.user.uid));
+  } catch (err) {
+    responder(res, next, err);
+  }
+});
+
 router.post("/:codigo/salir", verifyFirebaseAuth, async (req, res, next) => {
   try {
     res.json(vistaPublica(await svc.salir(req.params.codigo, req.user.uid), req.user.uid));
