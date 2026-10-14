@@ -93,13 +93,15 @@ function fotoValida(tipo, dataUrl) {
   return Boolean(MAX_FOTO[tipo]) && typeof dataUrl === "string" && dataUrl.length <= MAX_FOTO[tipo] && RE_FOTO.test(dataUrl);
 }
 
-function vistaPublica(jam, uidSolicitante = null) {
+// sinFotos: para el directo (SSE). Las fotos solo viajan cuando cambian; el
+// cliente ve un fotosV distinto y pide la sala completa.
+function vistaPublica(jam, uidSolicitante = null, { sinFotos = false } = {}) {
   const recuento = recontar(jam);
   return {
     codigo: jam.codigo,
     titulo: jam.titulo,
-    portada: jam.fotos?.portada || null,
-    foto: jam.fotos?.perfil || null,
+    ...(sinFotos ? {} : { portada: jam.fotos?.portada || null, foto: jam.fotos?.perfil || null }),
+    fotosV: jam.fotosV || 0,
     anfitrion: jam.anfitrionNombre,
     estado: jam.estado,
     cierraEn: jam.cierraEn,

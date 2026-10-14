@@ -203,8 +203,13 @@ describe("reserva en grupo (JAM)", () => {
     assert.equal((await request(app).put(`/v1/jams/${codigo}/foto`).set(auth(tokens.cliente)).send({ tipo: "perfil", dataUrl: "javascript:alert(1)" })).status, 400);
     const grande = `data:image/jpeg;base64,${"A".repeat(40000)}`;
     assert.equal((await request(app).put(`/v1/jams/${codigo}/foto`).set(auth(tokens.cliente)).send({ tipo: "perfil", dataUrl: grande })).status, 400);
+    // El directo no reenvía las fotos: solo la versión, para que el cliente las pida al cambiar.
+    const enDirecto = logica.vistaPublica(store.get("jams").get(codigo), null, { sinFotos: true });
+    assert.equal("portada" in enDirecto, false);
+    assert.equal(enDirecto.fotosV, 1);
     const quitada = await request(app).put(`/v1/jams/${codigo}/foto`).set(auth(tokens.cliente)).send({ tipo: "portada", dataUrl: null });
     assert.equal(quitada.body.portada, null);
+    assert.equal(quitada.body.fotosV, 2);
   });
 
   test("404 para un código inexistente y validación de la propuesta", async () => {

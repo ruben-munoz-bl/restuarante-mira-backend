@@ -145,6 +145,7 @@ function ponerFoto(codigo, uid, tipo, dataUrl) {
     if (uid !== jam.anfitrionUid) throw error("Solo el anfitrión puede cambiar las fotos", "FORBIDDEN", 403);
     if (dataUrl !== null && !logica.fotoValida(tipo, dataUrl)) throw error("La imagen no es válida o pesa demasiado", "FOTO_INVALIDA", 400);
     jam.fotos = { ...(jam.fotos || {}), [tipo]: dataUrl };
+    jam.fotosV = (jam.fotosV || 0) + 1;
     return guardar(jam);
   });
 }

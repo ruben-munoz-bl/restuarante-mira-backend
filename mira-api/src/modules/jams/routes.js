@@ -72,7 +72,7 @@ router.get("/:codigo/stream", async (req, res, next) => {
   }
   res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
   res.flushHeaders();
-  const enviar = (j) => res.write(`event: sala\ndata: ${JSON.stringify(vistaPublica(j))}\n\n`);
+  const enviar = (j) => res.write(`event: sala\ndata: ${JSON.stringify(vistaPublica(j, null, { sinFotos: true }))}\n\n`);
   enviar(jam);
   const quitar = svc.suscribir(jam.codigo, enviar);
   // Comentario cada 25 s: mantiene viva la conexión a través de proxies (Render corta conexiones inactivas).
