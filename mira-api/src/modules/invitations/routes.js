@@ -1,3 +1,6 @@
+const { createHash, timingSafeEqual } = require("node:crypto");
+const { env } = require("../../config/env");
+const { rateLimit } = require("../../middlewares/rateLimit");
 const { Router } = require("express");
 const { z } = require("zod");
 const { verifyFirebaseAuth } = require("../../middlewares/verifyFirebaseAuth");
@@ -6,7 +9,36 @@ const invitationService = require("./service");
 
 const router = Router();
 
-const inviteSchema = z.object({ email: z.string().email().optional(), emailInvitado: z.string().email().optional() })
+const eventoSchema = z.object({ event: z.string().min(1).max(100) }).passthrough();
+const webhookSchema = z.object({
+  event: z.string().min(1).max(100),
+  email: z.string().max(320).optional(),
+  "message-id": z.string().max(500).optional(),
+});
+
+function verificarTokenBrevo(req, res, next) {
+  const token = typeof req.query.token === "string" ? req.query.token : "";
+  const esperado = env.BREVO_WEBHOOK_TOKEN || "";
+  // Los hashes tienen la misma longitud incluso para tokens inválidos o vacíos.
+  const hash = (value) => createHash("sha256").update(value).digest();
+  const coincide = timingSafeEqual(hash(token), hash(esperado));
+  if (!coincide || !esperado) return res.status(401).json({ error: "UNAUTHORIZED" });
+  next();
+}
+
+router.post("/webhook/brevo", rateLimit(60000, 120), verificarTokenBrevo, validate(eventoSchema), (req, res, next) => {
+  // Eventos futuros se reconocen sin consultar Firestore ni validar campos que no utilizamos.
+  if (!invitationService.EVENTOS_INEXISTENTE.has(req.validated.event)) return res.status(200).json({ ok: true });
+  next();
+}, validate(webhookSchema), async (req, res, next) => {
+  try {
+    await invitationService.procesarEventoBrevo(req.validated);
+    res.status(200).json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+const emailSchema = z.string().trim().regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "No existe la dirección, compruebe antes de volver a enviar");
+const inviteSchema = z.object({ email: emailSchema.optional(), emailInvitado: emailSchema.optional() })
   .refine((d) => d.email || d.emailInvitado, { message: "email requerido" });
 
 router.post("/", verifyFirebaseAuth, validate(inviteSchema), async (req, res, next) => {

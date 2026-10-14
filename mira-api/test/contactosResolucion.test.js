@@ -20,6 +20,9 @@ test('resolver guarda los tres campos y el estado en la misma actualización', a
   assert.equal(c.propuestaResolucion, 'Contactar al local');
   assert.equal(c.solucion, 'Abono confirmado');
   assert.equal(c.encargado, 'Ana');
+  assert.equal(c.resueltoPor, 'u-admin');
+  assert.equal(c.resueltoPorNombre, 'Admin');
+  assert.ok(Number.isFinite(new Date(c.resueltaEn).getTime()));
 });
 
 test('cada campo es obligatorio y rechaza espacios sin resolver', async () => {
@@ -36,4 +39,21 @@ test('resolver exige permisos de administrador', async () => {
   const r = await request(app).put('/v1/contactos/c-resolucion/resolve').send(datos);
   assert.equal(r.status, 401);
   assert.equal(store.get('contactos').get('c-resolucion').estado, 'pendiente');
+});
+
+test('historial incluye resolución, conserva pendientes fuera y exige rol admin', async () => {
+  await request(app).put('/v1/contactos/c-resolucion/resolve').set('Authorization', `Bearer ${tokens.admin}`).send({ ...datos, resueltoPor: 'falso' });
+  seed('contactos', 'pendiente', { estado: 'pendiente' });
+  const r = await request(app).get('/v1/contactos/resolved').set('Authorization', `Bearer ${tokens.admin}`);
+  assert.equal(r.status, 200); assert.equal(r.body.length, 1);
+  assert.equal(r.body[0].resueltoPor, 'u-admin'); assert.equal(r.body[0].solucion, 'Abono confirmado');
+  assert.equal((await request(app).get('/v1/contactos/resolved')).status, 401);
+  assert.equal((await request(app).get('/v1/contactos/resolved').set('Authorization', `Bearer ${tokens.cliente}`)).status, 403);
+  const otra = await request(app).put('/v1/contactos/c-resolucion/resolve').set('Authorization', `Bearer ${tokens.admin}`).send({ ...datos, solucion: 'Sobrescribir' });
+  assert.equal(otra.status, 409); assert.equal(store.get('contactos').get('c-resolucion').solucion, 'Abono confirmado');
+});
+
+test('resolver un id inexistente devuelve 404', async () => {
+  const r = await request(app).put('/v1/contactos/no-existe/resolve').set('Authorization', `Bearer ${tokens.admin}`).send(datos);
+  assert.equal(r.status, 404);
 });

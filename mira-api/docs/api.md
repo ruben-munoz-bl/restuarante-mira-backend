@@ -1685,6 +1685,33 @@ Router: `src/modules/invitations/routes.js`. Servicio: `src/modules/invitations/
 
 Flujo: un cliente genera un código (8 caracteres sin vocales ambiguas) para un email; el invitado lo acepta y, tras `INVITACIONES_RESERVAS_REQUERIDAS` (2) reservas completadas, ambos reciben `PUNTOS_INVITACION` (200). `onInvitadoReservaCompletada` es invocado desde `reservations/service` al completar una reserva.
 
+### Configuración Brevo HTTPS de invitaciones (BUG-120)
+
+El servicio guarda primero la invitación en Firestore y después envía el correo con `fetch` nativo de Node (sin dependencias de correo): `POST https://api.brevo.com/v3/smtp/email`, cabecera `api-key`, `sender`, `to`, `subject`, `textContent` y `htmlContent`. Ambas versiones incluyen el código y el enlace `FRONTEND_URL/#/registro?invite=CODIGO`. El HTML escapa los valores dinámicos. Timeout de 15 segundos. [API de Brevo](https://developers.brevo.com/docs/send-a-transactional-email).
+
+La validación inicial del destinatario sigue siendo exclusivamente de formato. El envío y su existencia se conocen después mediante Brevo; no se consulta DNS ni se promete entrega inmediata. Se persisten `messageId` y `emailEstado`: `enviado` si Brevo acepta el mensaje con identificador, `no_enviado` si falta clave/remitente o hay error, `inexistente` ante los eventos del webhook indicados abajo. `enviado` significa aceptado por el proveedor, no entregado al buzón. Sin clave o con error se conserva la invitación y se devuelve 201; el log contiene un aviso sin clave ni cuerpo de respuesta. No hay reintentos automáticos.
+
+**Render:** en el servicio mira-api, Environment, eliminar las variables `SMTP_*` antiguas y configurar:
+
+| Variable | Valor |
+|---|---|
+| `BREVO_API_KEY` | Clave API de Brevo, solo en Environment de Render |
+| `MAIL_FROM` | Remitente verificado en Brevo: `cuenta@dominio.tld` o `MIRA <cuenta@dominio.tld>` |
+| `BREVO_WEBHOOK_TOKEN` | Secreto aleatorio largo; usar el mismo valor en la URL del webhook |
+| `FRONTEND_URL` | URL HTTPS pública del frontend sin hash ni ruta de registro |
+
+Redesplegar backend y frontend. La API HTTPS usa el puerto 443 y funciona con Render Free; no utiliza SMTP ni Nodemailer. El backend no tiene fase de build/transpilación: instalar dependencias y usar `npm start`; pruebas con `npm test`.
+
+**Brevo:**
+
+1. Crear/iniciar sesión en la cuenta y habilitar el envío transaccional si Brevo solicita activación. Añadir/verificar el remitente (y autenticar el dominio si se utiliza un dominio propio).
+2. En la configuración de claves API, generar una clave para este servicio y guardarla como `BREVO_API_KEY` en Render. No usar una clave SMTP ni publicar la clave en Git/frontend.
+3. En Email transaccional → configuración de webhooks, crear un webhook transaccional **sin agrupación de eventos** hacia `https://<backend-render>/v1/invite/webhook/brevo?token=<BREVO_WEBHOOK_TOKEN_URL_ENCODED>`.
+4. Seleccionar Hard bounce, Invalid email y Blocked. Los nombres del payload son `hard_bounce`, `invalid_email` y `blocked`. El token de la URL debe coincidir exactamente con la variable de Render; codificarlo para URL.
+5. Después del despliegue, enviar una invitación de prueba y verificar su `messageId`/`emailEstado` y los logs transaccionales de Brevo. Probar el webhook y recargar la lista para ver el resultado. Las cuotas/límites aplicables son los de la cuenta Brevo.
+
+`GET /v1/invite/my` recupera las enviadas del usuario autenticado, incluidos los campos de entrega. Se ordenan en memoria por `createdAt` para no requerir un índice compuesto. El panel espera Firebase Auth después de F5 y vuelve a solicitar la lista; Mi cuenta también la carga al montar con sesión. El estado `inexistente` muestra «No existe la dirección, compruebe antes de volver a enviar» en la invitación; `no_enviado` indica que el correo no pudo enviarse. Traducciones es/ca/en. Los registros antiguos sin `emailEstado` permanecen consultables sin inventar una etiqueta de entrega.
+
 ### 11.1 `POST /v1/invite`
 
 | Campo | Valor |
@@ -1695,7 +1722,7 @@ Flujo: un cliente genera un código (8 caracteres sin vocales ambiguas) para un 
 | Middlewares | `validate(inviteSchema)` |
 | Roles | — |
 | Body | `{ email?: email, emailInvitado?: email }` (al menos uno) |
-| Respuesta | `201 { id, codigo, email, estado: "pendiente" }` |
+| Respuesta | `201 { id, codigo, email, estado: "pendiente", messageId: string | null, emailEstado }` |
 | Errores | `400 VALIDATION_ERROR` (+`details` en el refine), `400 SELF_INVITE`, `429 RATE_LIMITED`, 500 `INTERNAL_ERROR` |
 
 `crearInvitacion` (`service.js:5`):
@@ -1761,6 +1788,19 @@ curl "$BASE/v1/invite/my" -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
+
+### 11.4 `POST /v1/invite/webhook/brevo?token=SECRETO`
+
+Endpoint público sin Firebase Auth, protegido por `BREVO_WEBHOOK_TOKEN`. Compara hashes SHA-256 de longitud fija con `crypto.timingSafeEqual`. Token incorrecto/ausente o secreto de servidor no configurado devuelve 401. Límite: 120 peticiones/minuto por IP (además del global). Zod valida el evento y, para los eventos utilizados, `email` y `message-id` opcionales con límites de longitud; los demás campos se ignoran. El logger de peticiones elimina la query para no registrar el token.
+
+Los eventos desconocidos devuelven 200 inmediatamente sin consultar Firestore. Para `hard_bounce`, `invalid_email` y `blocked` se busca por `messageId` (admite identificador con/sin corchetes angulares); si no coincide, por email normalizado y la invitación pendiente más reciente, ordenada en memoria. Una transacción establece `emailEstado: "inexistente"` solo si la invitación sigue pendiente y sin aceptación. No modifica `aceptada` ni `esperando_2_reservas`, tampoco cae al fallback si el identificador corresponde a una aceptada. Repetir un evento es seguro. Sin coincidencia devuelve 200; un fallo de Firestore devuelve 500 para que el proveedor pueda reintentar. No hay índices compuestos nuevos.
+
+Este estado agrupa los tres eventos por decisión funcional del BUG-120; `blocked` puede indicar una dirección bloqueada, no necesariamente un buzón inexistente. [Eventos transaccionales de Brevo](https://developers.brevo.com/docs/transactional-webhooks).
+
+```json
+{ "event": "hard_bounce", "email": "amigo@example.com", "message-id": "<identificador@brevo>" }
+```
+
 
 ## 12. Promociones — `/v1/promotions`
 
@@ -2130,8 +2170,8 @@ curl "$BASE/v1/contactos/pending" -H "Authorization: Bearer $TOKEN"
 | Roles | `admin` |
 | Path | `id` |
 | Body | `{ propuestaResolucion, solucion, encargado }` — los tres obligatorios |
-| Respuesta | `200 {"ok": true}` |
-| Errores | 400 `VALIDATION_ERROR` (falta un campo, está vacío o supera el límite); 403 `FORBIDDEN`; 500 `INTERNAL_ERROR` |
+| Respuesta | `200 { ok: true, id, ...incidenciaActualizada }` (fechas nuevas en ISO; Firestore puede serializar las existentes como Timestamp) |
+| Errores | 400 `VALIDATION_ERROR` (falta un campo, está vacío o supera el límite); 403 `FORBIDDEN`; 404 si no existe; 409 si ya está resuelta; 500 `INTERNAL_ERROR` |
 
 Resolver una incidencia ya **no es un solo clic**: el panel admin abre un popup que pide los tres campos y solo al confirmar llama a este endpoint.
 
@@ -2141,7 +2181,7 @@ Resolver una incidencia ya **no es un solo clic**: el panel admin abre un popup 
 | `solucion` | string | 1–4000 | Qué se ha hecho finalmente |
 | `encargado` | string | 1–200 | Persona responsable de la resolución |
 
-Los valores se recortan (`trim`); solo espacios cuenta como vacío. `resolverIncidencia` (`service.js`) los valida de nuevo y guarda en **una sola actualización**: `update({ propuestaResolucion, solucion, encargado, estado: "resuelta" })`. Con un id inexistente, Firestore lanza y acaba en 500.
+Los valores se recortan (`trim`); solo espacios cuenta como vacío. El servicio los valida de nuevo y guarda en una transacción los tres campos, `estado: "resuelta"`, `resueltoPor` (UID del administrador autenticado), `resueltoPorNombre` (nombre del perfil o UID) y `resueltaEn` (fecha del servidor). El encargado escrito en el formulario no sustituye al administrador que resolvió. Un id inexistente devuelve 404; una incidencia ya resuelta devuelve 409 sin sobrescribir su historial.
 
 La herramienta de IA `resolveContacto` (`ai/tools.js`, deshabilitada) exige los mismos tres campos.
 
@@ -2154,7 +2194,7 @@ curl -X PUT "$BASE/v1/contactos/ct_1/resolve" -H "Authorization: Bearer $TOKEN" 
 ```
 
 ```json
-{ "ok": true }
+{ "ok": true, "id": "ct_1", "estado": "resuelta", "resueltoPor": "uid-admin", "resueltoPorNombre": "Ana", "resueltaEn": "2026-10-14T10:00:00.000Z", "solucion": "Abono del 10 %", "encargado": "Ana", "propuestaResolucion": "Llamar al cliente" }
 ```
 
 ---
@@ -2164,6 +2204,14 @@ curl -X PUT "$BASE/v1/contactos/ct_1/resolve" -H "Authorization: Bearer $TOKEN" 
 Router: `src/modules/mensajes/routes.js`. Servicio: `src/modules/mensajes/service.js`. Colección: `mensajes`.
 
 Los mensajes los escribe el admin desde `POST /v1/dashboard/restaurant/:id/message`; además `espera/service` notifica cuando se libera una plaza de la lista de espera.
+
+### 16.5 `GET /v1/contactos/resolved`
+
+Requiere `verifyFirebaseAuth` y rol `admin`. Devuelve un array de contactos con `estado: "resuelta"`, incluidos los datos originales, `propuestaResolucion`, `solucion`, `encargado`, `resueltoPor`, `resueltoPorNombre` y `resueltaEn` cuando existan. Orden descendente por fecha de resolución, realizado en memoria: no necesita un índice compuesto nuevo. Sin sesión devuelve 401 y un usuario no administrador recibe 403.
+
+Admin > Incidencias consume este endpoint en la vista Resueltas. Tanto `Admin.jsx` como `OpsIncidencias.jsx` aíslan el fallo de cada listado con `.catch(() => [])`: si el historial falla, pendientes y negocios siguen disponibles. Los filtros de texto y fecha son locales y los gráficos Recharts utilizan el conjunto filtrado: cantidad por UID del administrador, duración media por persona y evolución diaria de la media (horas entre `creado` y `resueltaEn`). Los días se agrupan en UTC. Los registros anteriores sin autor/fecha permanecen consultables; no se atribuyen al encargado ni se incluyen en medias sin fechas válidas.
+
+**Render (BUG-121):** desplegar el backend antes o junto al frontend. No se requieren variables de entorno nuevas, migración de registros antiguos ni índices nuevos para este endpoint.
 
 ### 17.1 `GET /v1/mensajes`
 

@@ -30,7 +30,7 @@ function requestId(req, res, next) {
 function requestLogger(req, res, next) {
   const start = Date.now();
   res.on("finish", () => {
-    logger.info({ method: req.method, url: req.url, status: res.statusCode, ms: Date.now() - start, requestId: req.id });
+    logger.info({ method: req.method, url: req.url.split("?")[0], status: res.statusCode, ms: Date.now() - start, requestId: req.id });
   });
   next();
 }

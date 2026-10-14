@@ -30,7 +30,7 @@ async function listarPendientes() {
   return list;
 }
 
-async function resolverIncidencia(id, resolucion) {
+async function resolverIncidencia(id, resolucion, resolverUid) {
   const datos = {};
   for (const campo of ["propuestaResolucion", "solucion", "encargado"]) {
     const valor = String(resolucion?.[campo] || "").trim();
@@ -41,8 +41,33 @@ async function resolverIncidencia(id, resolucion) {
     }
     datos[campo] = valor;
   }
-  await db.collection("contactos").doc(id).update({ ...datos, estado: "resuelta" });
-  return { ok: true };
+  if (!resolverUid) {
+    const err = new Error("Se requiere el administrador que resuelve");
+    err.status = 400;
+    throw err;
+  }
+  const ref = db.collection("contactos").doc(id);
+  const adminSnap = await db.collection("usuarios").doc(resolverUid).get();
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) {
+      const err = new Error("Incidencia no encontrada"); err.status = 404; throw err;
+    }
+    if (snap.data().estado === "resuelta") {
+      const err = new Error("La incidencia ya está resuelta"); err.status = 409; throw err;
+    }
+    const actualizacion = { ...datos, estado: "resuelta", resueltoPor: resolverUid,
+      resueltoPorNombre: adminSnap.data()?.nombre || resolverUid, resueltaEn: new Date() };
+    tx.update(ref, actualizacion);
+    return { ...snap.data(), ...actualizacion, id, ok: true };
+  });
 }
 
-module.exports = { crearContacto, listarMisIncidencias, listarPendientes, resolverIncidencia };
+async function listarResueltas() {
+  const snap = await db.collection("contactos").where("estado", "==", "resuelta").get();
+  const fecha = (v) => v?.toDate ? v.toDate().getTime() : new Date(v).getTime() || 0;
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a, b) => fecha(b.resueltaEn) - fecha(a.resueltaEn));
+}
+
+module.exports = { crearContacto, listarMisIncidencias, listarPendientes, listarResueltas, resolverIncidencia };
