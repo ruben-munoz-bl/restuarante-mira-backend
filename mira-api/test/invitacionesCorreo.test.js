@@ -83,3 +83,18 @@ test('un rebote recibido durante el envío no se sobrescribe al guardar messageI
   assert.equal(r.status, 201); assert.equal(r.body.emailEstado, 'inexistente'); assert.equal(r.body.messageId, '<rapido@brevo>');
  } finally { globalThis.fetch = fetchOriginal; Object.assign(env, antes); }
 });
+
+test('BUG-122: un error recibido durante el envío no se sobrescribe con el 201/messageId', async () => {
+ const antes = { ...env }, fetchOriginal = globalThis.fetch;
+ try {
+  seedBase(); clearRateLimits(); Object.assign(env, config);
+  globalThis.fetch = async () => {
+   await require('../src/modules/invitations/service').procesarEventoBrevo({ event: 'error', email: 'amigo@test.local', reason: 'dato privado' });
+   return { ok: true, json: async () => ({ messageId: '<error-rapido@brevo>' }) };
+  };
+  const r = await request(app).post('/v1/invite').set('Authorization', `Bearer ${tokens.cliente}`).send({ email: 'amigo@test.local' });
+  assert.equal(r.status, 201); assert.equal(r.body.emailEstado, 'no_enviado'); assert.equal(r.body.messageId, '<error-rapido@brevo>');
+  const inv = store.get('invitaciones').get(r.body.id);
+  assert.equal(inv.emailEvento, 'error'); assert.equal(inv.emailEstado, 'no_enviado'); assert.equal('reason' in inv, false);
+ } finally { globalThis.fetch = fetchOriginal; Object.assign(env, antes); }
+});

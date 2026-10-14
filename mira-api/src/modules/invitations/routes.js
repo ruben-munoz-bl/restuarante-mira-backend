@@ -28,7 +28,7 @@ function verificarTokenBrevo(req, res, next) {
 
 router.post("/webhook/brevo", rateLimit(60000, 120), verificarTokenBrevo, validate(eventoSchema), (req, res, next) => {
   // Eventos futuros se reconocen sin consultar Firestore ni validar campos que no utilizamos.
-  if (!invitationService.EVENTOS_INEXISTENTE.has(req.validated.event)) return res.status(200).json({ ok: true });
+  if (!invitationService.EVENTOS_BREVO.has(req.validated.event)) return res.status(200).json({ ok: true });
   next();
 }, validate(webhookSchema), async (req, res, next) => {
   try {
