@@ -46,8 +46,9 @@ async function crearInvitacion(uid, emailInvitado) {
   const ref = db.collection("invitaciones").doc(docRef.id);
   const emailEstado = await db.runTransaction(async (tx) => {
     const actual = await tx.get(ref);
-    // Un webhook rápido puede haber marcado el rebote mientras Brevo respondía.
-    const estado = actual.data()?.emailEstado === "inexistente" ? "inexistente" : envio.emailEstado;
+    // Un webhook rápido puede haber marcado un rebote/error mientras Brevo respondía.
+    const datos = actual.data();
+    const estado = datos?.emailEstado === "inexistente" || datos?.emailEvento === "error" ? datos.emailEstado : envio.emailEstado;
     tx.update(ref, { ...envio, emailEstado: estado });
     return estado;
   });
@@ -135,10 +136,10 @@ async function getMyInvites(uid) {
   return { enviadas, aceptadas, puntosTotales: aceptadas * PUNTOS_INVITACION, invitaciones: enviadas };
 }
 
-const EVENTOS_INEXISTENTE = new Set(["hard_bounce", "invalid_email", "blocked"]);
+const EVENTOS_BREVO = new Set(["hard_bounce", "invalid_email", "blocked", "error"]);
 
 async function procesarEventoBrevo(evento) {
-  if (!EVENTOS_INEXISTENTE.has(evento.event)) return;
+  if (!EVENTOS_BREVO.has(evento.event)) return;
   let invitacion;
   if (evento["message-id"]) {
     // Brevo puede emitir el identificador con o sin los corchetes angulares de la respuesta HTTP.
@@ -163,8 +164,10 @@ async function procesarEventoBrevo(evento) {
     const datos = actual.data();
     // Ni las aceptadas ni las que esperan reservas se modifican; también protege carreras con /accept.
     if (!actual.exists || datos.estado !== "pendiente" || datos.aceptadaPor) return;
-    tx.update(ref, { emailEstado: "inexistente" });
+    // Un fallo genérico de entrega nunca degrada un diagnóstico previo de dirección inexistente.
+    if (evento.event === "error" && datos.emailEstado === "inexistente") return;
+    tx.update(ref, { emailEstado: evento.event === "error" ? "no_enviado" : "inexistente", emailEvento: evento.event });
   });
 }
 
-module.exports = { procesarEventoBrevo, EVENTOS_INEXISTENTE, crearInvitacion, aceptarInvitacion, onInvitadoReservaCompletada, getMyInvites };
+module.exports = { procesarEventoBrevo, EVENTOS_BREVO, crearInvitacion, aceptarInvitacion, onInvitadoReservaCompletada, getMyInvites };
