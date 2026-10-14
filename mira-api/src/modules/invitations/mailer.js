@@ -1,32 +1,54 @@
-const nodemailer = require("nodemailer");
 const { env } = require("../../config/env");
 const { logger } = require("../../middlewares/errorHandler");
 
-// Dependencias inyectables para probar sin conectar con Gmail.
-async function enviarInvitacion({ email, codigo }, { config = env, createTransport = nodemailer.createTransport, log = logger } = {}) {
-  if (!config.SMTP_USER || !config.SMTP_PASS) {
-    log.warn("SMTP sin credenciales: invitación creada sin enviar correo");
-    return false;
+function escaparHtml(texto) {
+  return String(texto).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+function remitente(valor) {
+  const match = String(valor || "").trim().match(/^(.*?)\s*<([^<>]+)>$/);
+  return match ? { name: match[1].trim() || "MIRA", email: match[2].trim() } : { email: String(valor || "").trim() };
+}
+
+// fetch inyectable: los tests nunca contactan a Brevo ni usan claves reales.
+async function enviarInvitacion({ email, codigo }, { config = env, fetchImpl = globalThis.fetch, log = logger } = {}) {
+  const noEnviado = { emailEstado: "no_enviado", messageId: null };
+  if (!config.BREVO_API_KEY) {
+    log.warn("Brevo sin clave: invitación creada sin enviar correo");
+    return noEnviado;
+  }
+  const sender = remitente(config.MAIL_FROM);
+  if (!sender.email) {
+    log.warn("Brevo sin remitente: invitación creada sin enviar correo");
+    return noEnviado;
   }
   const link = `${config.FRONTEND_URL.replace(/\/$/, "")}/#/registro?invite=${encodeURIComponent(codigo)}`;
   try {
-    const transport = createTransport({
-      host: config.SMTP_HOST, port: config.SMTP_PORT,
-      secure: config.SMTP_PORT === 465,
-      requireTLS: config.SMTP_PORT !== 465,
-      auth: { user: config.SMTP_USER, pass: config.SMTP_PASS },
-      connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000,
+    const response = await fetchImpl("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: { "api-key": config.BREVO_API_KEY, "Content-Type": "application/json", accept: "application/json" },
+      signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({
+        sender, to: [{ email }], subject: "Te han invitado a MIRA",
+        textContent: `¡Te han invitado a MIRA!\nRegístrate con este enlace: ${link}\nTu código de invitación: ${codigo}\nTras completar dos reservas, ambos recibiréis puntos.`,
+        htmlContent: `<h1>¡Te han invitado a MIRA!</h1><p><a href="${escaparHtml(link)}">Regístrate en MIRA</a></p><p>Tu código de invitación: <strong>${escaparHtml(codigo)}</strong></p><p>Tras completar dos reservas, ambos recibiréis puntos.</p>`,
+      }),
     });
-    await transport.sendMail({
-      from: config.MAIL_FROM || config.SMTP_USER, to: email,
-      subject: "Te han invitado a MIRA",
-      text: `¡Te han invitado a MIRA!\nRegístrate con este enlace: ${link}\nTu código de invitación: ${codigo}\nTras completar dos reservas, ambos recibiréis puntos.`,
-    });
-    return true;
-  } catch (error) {
-    // No registrar el objeto del error SMTP: puede contener credenciales o PII.
-    log.warn({ code: error.code || "SMTP_ERROR" }, "No se pudo enviar el correo; la invitación sigue creada");
-    return false;
+    if (!response.ok) {
+      // No leer ni registrar la respuesta de error: puede contener PII.
+      log.warn({ status: response.status }, "Brevo no aceptó el correo; la invitación sigue creada");
+      return noEnviado;
+    }
+    const data = await response.json();
+    if (typeof data.messageId !== "string" || !data.messageId || data.messageId.length > 500) {
+      log.warn("Brevo no devolvió un identificador de mensaje válido");
+      return noEnviado;
+    }
+    return { emailEstado: "enviado", messageId: data.messageId };
+  } catch {
+    // No registrar el objeto del error, la clave ni el cuerpo de la respuesta.
+    log.warn("No se pudo enviar el correo con Brevo; la invitación sigue creada");
+    return noEnviado;
   }
 }
 

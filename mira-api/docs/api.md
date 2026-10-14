@@ -1685,26 +1685,32 @@ Router: `src/modules/invitations/routes.js`. Servicio: `src/modules/invitations/
 
 Flujo: un cliente genera un código (8 caracteres sin vocales ambiguas) para un email; el invitado lo acepta y, tras `INVITACIONES_RESERVAS_REQUERIDAS` (2) reservas completadas, ambos reciben `PUNTOS_INVITACION` (200). `onInvitadoReservaCompletada` es invocado desde `reservations/service` al completar una reserva.
 
-### Configuración SMTP de invitaciones (BUG-120)
+### Configuración Brevo HTTPS de invitaciones (BUG-120)
 
-El servicio guarda primero la invitación en Firestore y después envía un correo de texto con Nodemailer. Incluye el código y el enlace `FRONTEND_URL/#/registro?invite=CODIGO`. La validación del email es exclusivamente de formato (en frontend y backend); no consulta DNS ni verifica que exista el buzón.
+El servicio guarda primero la invitación en Firestore y después envía el correo con `fetch` nativo de Node (sin dependencias de correo): `POST https://api.brevo.com/v3/smtp/email`, cabecera `api-key`, `sender`, `to`, `subject`, `textContent` y `htmlContent`. Ambas versiones incluyen el código y el enlace `FRONTEND_URL/#/registro?invite=CODIGO`. El HTML escapa los valores dinámicos. Timeout de 15 segundos. [API de Brevo](https://developers.brevo.com/docs/send-a-transactional-email).
 
-En **Render → servicio mira-api → Environment**, configurar:
+La validación inicial del destinatario sigue siendo exclusivamente de formato. El envío y su existencia se conocen después mediante Brevo; no se consulta DNS ni se promete entrega inmediata. Se persisten `messageId` y `emailEstado`: `enviado` si Brevo acepta el mensaje con identificador, `no_enviado` si falta clave/remitente o hay error, `inexistente` ante los eventos del webhook indicados abajo. `enviado` significa aceptado por el proveedor, no entregado al buzón. Sin clave o con error se conserva la invitación y se devuelve 201; el log contiene un aviso sin clave ni cuerpo de respuesta. No hay reintentos automáticos.
+
+**Render:** en el servicio mira-api, Environment, eliminar las variables `SMTP_*` antiguas y configurar:
 
 | Variable | Valor |
 |---|---|
-| `SMTP_HOST` | `smtp.gmail.com` |
-| `SMTP_PORT` | `465` (TLS directo); `587` utiliza STARTTLS obligatorio |
-| `SMTP_USER` | Cuenta de Gmail remitente |
-| `SMTP_PASS` | Contraseña de aplicación de Google, guardada solo en Render |
-| `MAIL_FROM` | Remitente autorizado, por ejemplo `MIRA <cuenta@gmail.com>`; si está vacío se usa `SMTP_USER` |
-| `FRONTEND_URL` | URL HTTPS pública del frontend, sin hash ni ruta de registro |
+| `BREVO_API_KEY` | Clave API de Brevo, solo en Environment de Render |
+| `MAIL_FROM` | Remitente verificado en Brevo: `cuenta@dominio.tld` o `MIRA <cuenta@dominio.tld>` |
+| `BREVO_WEBHOOK_TOKEN` | Secreto aleatorio largo; usar el mismo valor en la URL del webhook |
+| `FRONTEND_URL` | URL HTTPS pública del frontend sin hash ni ruta de registro |
 
-**Render Free bloquea tráfico saliente a los puertos SMTP 25, 465 y 587. Para Gmail SMTP desde Render es necesaria una instancia de pago**, según [Render](https://render.com/docs/free). Crear la contraseña de aplicación con la verificación en dos pasos activada, según [Google](https://support.google.com/mail/answer/185833).
+Redesplegar backend y frontend. La API HTTPS usa el puerto 443 y funciona con Render Free; no utiliza SMTP ni Nodemailer. El backend no tiene fase de build/transpilación: instalar dependencias y usar `npm start`; pruebas con `npm test`.
 
-Guardar las variables y redesplegar el backend con la dependencia `nodemailer`. No añadir credenciales a Git. La URL por defecto es local y debe sustituirse en Render. Sin `SMTP_USER` o `SMTP_PASS`, se registra un aviso y se devuelve 201 conservando la invitación. Si SMTP falla, también se conserva y se registra el código del error sin credenciales ni email; no se reintenta automáticamente. El mensaje «¡Invitación enviada!» confirma la creación de la invitación, no la entrega al buzón. El proveedor puede aplicar límites de envío.
+**Brevo:**
 
-`GET /v1/invite/my` recupera las enviadas del usuario autenticado. Se ordenan en memoria por `createdAt` para no requerir un índice compuesto de Firestore. El panel espera la restauración de Firebase Auth después de F5 y vuelve a solicitar la lista; Mi cuenta también la carga al montar con sesión.
+1. Crear/iniciar sesión en la cuenta y habilitar el envío transaccional si Brevo solicita activación. Añadir/verificar el remitente (y autenticar el dominio si se utiliza un dominio propio).
+2. En la configuración de claves API, generar una clave para este servicio y guardarla como `BREVO_API_KEY` en Render. No usar una clave SMTP ni publicar la clave en Git/frontend.
+3. En Email transaccional → configuración de webhooks, crear un webhook transaccional **sin agrupación de eventos** hacia `https://<backend-render>/v1/invite/webhook/brevo?token=<BREVO_WEBHOOK_TOKEN_URL_ENCODED>`.
+4. Seleccionar Hard bounce, Invalid email y Blocked. Los nombres del payload son `hard_bounce`, `invalid_email` y `blocked`. El token de la URL debe coincidir exactamente con la variable de Render; codificarlo para URL.
+5. Después del despliegue, enviar una invitación de prueba y verificar su `messageId`/`emailEstado` y los logs transaccionales de Brevo. Probar el webhook y recargar la lista para ver el resultado. Las cuotas/límites aplicables son los de la cuenta Brevo.
+
+`GET /v1/invite/my` recupera las enviadas del usuario autenticado, incluidos los campos de entrega. Se ordenan en memoria por `createdAt` para no requerir un índice compuesto. El panel espera Firebase Auth después de F5 y vuelve a solicitar la lista; Mi cuenta también la carga al montar con sesión. El estado `inexistente` muestra «No existe la dirección, compruebe antes de volver a enviar» en la invitación; `no_enviado` indica que el correo no pudo enviarse. Traducciones es/ca/en. Los registros antiguos sin `emailEstado` permanecen consultables sin inventar una etiqueta de entrega.
 
 ### 11.1 `POST /v1/invite`
 
@@ -1716,7 +1722,7 @@ Guardar las variables y redesplegar el backend con la dependencia `nodemailer`. 
 | Middlewares | `validate(inviteSchema)` |
 | Roles | — |
 | Body | `{ email?: email, emailInvitado?: email }` (al menos uno) |
-| Respuesta | `201 { id, codigo, email, estado: "pendiente" }` |
+| Respuesta | `201 { id, codigo, email, estado: "pendiente", messageId: string | null, emailEstado }` |
 | Errores | `400 VALIDATION_ERROR` (+`details` en el refine), `400 SELF_INVITE`, `429 RATE_LIMITED`, 500 `INTERNAL_ERROR` |
 
 `crearInvitacion` (`service.js:5`):
@@ -1782,6 +1788,19 @@ curl "$BASE/v1/invite/my" -H "Authorization: Bearer $TOKEN"
 ```
 
 ---
+
+### 11.4 `POST /v1/invite/webhook/brevo?token=SECRETO`
+
+Endpoint público sin Firebase Auth, protegido por `BREVO_WEBHOOK_TOKEN`. Compara hashes SHA-256 de longitud fija con `crypto.timingSafeEqual`. Token incorrecto/ausente o secreto de servidor no configurado devuelve 401. Límite: 120 peticiones/minuto por IP (además del global). Zod valida el evento y, para los eventos utilizados, `email` y `message-id` opcionales con límites de longitud; los demás campos se ignoran. El logger de peticiones elimina la query para no registrar el token.
+
+Los eventos desconocidos devuelven 200 inmediatamente sin consultar Firestore. Para `hard_bounce`, `invalid_email` y `blocked` se busca por `messageId` (admite identificador con/sin corchetes angulares); si no coincide, por email normalizado y la invitación pendiente más reciente, ordenada en memoria. Una transacción establece `emailEstado: "inexistente"` solo si la invitación sigue pendiente y sin aceptación. No modifica `aceptada` ni `esperando_2_reservas`, tampoco cae al fallback si el identificador corresponde a una aceptada. Repetir un evento es seguro. Sin coincidencia devuelve 200; un fallo de Firestore devuelve 500 para que el proveedor pueda reintentar. No hay índices compuestos nuevos.
+
+Este estado agrupa los tres eventos por decisión funcional del BUG-120; `blocked` puede indicar una dirección bloqueada, no necesariamente un buzón inexistente. [Eventos transaccionales de Brevo](https://developers.brevo.com/docs/transactional-webhooks).
+
+```json
+{ "event": "hard_bounce", "email": "amigo@example.com", "message-id": "<identificador@brevo>" }
+```
+
 
 ## 12. Promociones — `/v1/promotions`
 
@@ -2190,7 +2209,7 @@ Los mensajes los escribe el admin desde `POST /v1/dashboard/restaurant/:id/messa
 
 Requiere `verifyFirebaseAuth` y rol `admin`. Devuelve un array de contactos con `estado: "resuelta"`, incluidos los datos originales, `propuestaResolucion`, `solucion`, `encargado`, `resueltoPor`, `resueltoPorNombre` y `resueltaEn` cuando existan. Orden descendente por fecha de resolución, realizado en memoria: no necesita un índice compuesto nuevo. Sin sesión devuelve 401 y un usuario no administrador recibe 403.
 
-Admin > Incidencias consume este endpoint en la vista Resueltas. Los filtros de texto y fecha son locales y los gráficos Recharts utilizan el conjunto filtrado: cantidad por UID del administrador, duración media por persona y evolución diaria de la media (horas entre `creado` y `resueltaEn`). Los días se agrupan en UTC. Los registros anteriores sin autor/fecha permanecen consultables; no se atribuyen al encargado ni se incluyen en medias sin fechas válidas.
+Admin > Incidencias consume este endpoint en la vista Resueltas. Tanto `Admin.jsx` como `OpsIncidencias.jsx` aíslan el fallo de cada listado con `.catch(() => [])`: si el historial falla, pendientes y negocios siguen disponibles. Los filtros de texto y fecha son locales y los gráficos Recharts utilizan el conjunto filtrado: cantidad por UID del administrador, duración media por persona y evolución diaria de la media (horas entre `creado` y `resueltaEn`). Los días se agrupan en UTC. Los registros anteriores sin autor/fecha permanecen consultables; no se atribuyen al encargado ni se incluyen en medias sin fechas válidas.
 
 **Render (BUG-121):** desplegar el backend antes o junto al frontend. No se requieren variables de entorno nuevas, migración de registros antiguos ni índices nuevos para este endpoint.
 
