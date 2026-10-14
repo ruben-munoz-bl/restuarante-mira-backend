@@ -2151,8 +2151,8 @@ curl "$BASE/v1/contactos/pending" -H "Authorization: Bearer $TOKEN"
 | Roles | `admin` |
 | Path | `id` |
 | Body | `{ propuestaResolucion, solucion, encargado }` — los tres obligatorios |
-| Respuesta | `200 {"ok": true}` |
-| Errores | 400 `VALIDATION_ERROR` (falta un campo, está vacío o supera el límite); 403 `FORBIDDEN`; 500 `INTERNAL_ERROR` |
+| Respuesta | `200 { ok: true, id, ...incidenciaActualizada }` (fechas nuevas en ISO; Firestore puede serializar las existentes como Timestamp) |
+| Errores | 400 `VALIDATION_ERROR` (falta un campo, está vacío o supera el límite); 403 `FORBIDDEN`; 404 si no existe; 409 si ya está resuelta; 500 `INTERNAL_ERROR` |
 
 Resolver una incidencia ya **no es un solo clic**: el panel admin abre un popup que pide los tres campos y solo al confirmar llama a este endpoint.
 
@@ -2162,7 +2162,7 @@ Resolver una incidencia ya **no es un solo clic**: el panel admin abre un popup 
 | `solucion` | string | 1–4000 | Qué se ha hecho finalmente |
 | `encargado` | string | 1–200 | Persona responsable de la resolución |
 
-Los valores se recortan (`trim`); solo espacios cuenta como vacío. `resolverIncidencia` (`service.js`) los valida de nuevo y guarda en **una sola actualización**: `update({ propuestaResolucion, solucion, encargado, estado: "resuelta" })`. Con un id inexistente, Firestore lanza y acaba en 500.
+Los valores se recortan (`trim`); solo espacios cuenta como vacío. El servicio los valida de nuevo y guarda en una transacción los tres campos, `estado: "resuelta"`, `resueltoPor` (UID del administrador autenticado), `resueltoPorNombre` (nombre del perfil o UID) y `resueltaEn` (fecha del servidor). El encargado escrito en el formulario no sustituye al administrador que resolvió. Un id inexistente devuelve 404; una incidencia ya resuelta devuelve 409 sin sobrescribir su historial.
 
 La herramienta de IA `resolveContacto` (`ai/tools.js`, deshabilitada) exige los mismos tres campos.
 
@@ -2175,7 +2175,7 @@ curl -X PUT "$BASE/v1/contactos/ct_1/resolve" -H "Authorization: Bearer $TOKEN" 
 ```
 
 ```json
-{ "ok": true }
+{ "ok": true, "id": "ct_1", "estado": "resuelta", "resueltoPor": "uid-admin", "resueltoPorNombre": "Ana", "resueltaEn": "2026-10-14T10:00:00.000Z", "solucion": "Abono del 10 %", "encargado": "Ana", "propuestaResolucion": "Llamar al cliente" }
 ```
 
 ---
@@ -2185,6 +2185,14 @@ curl -X PUT "$BASE/v1/contactos/ct_1/resolve" -H "Authorization: Bearer $TOKEN" 
 Router: `src/modules/mensajes/routes.js`. Servicio: `src/modules/mensajes/service.js`. Colección: `mensajes`.
 
 Los mensajes los escribe el admin desde `POST /v1/dashboard/restaurant/:id/message`; además `espera/service` notifica cuando se libera una plaza de la lista de espera.
+
+### 16.5 `GET /v1/contactos/resolved`
+
+Requiere `verifyFirebaseAuth` y rol `admin`. Devuelve un array de contactos con `estado: "resuelta"`, incluidos los datos originales, `propuestaResolucion`, `solucion`, `encargado`, `resueltoPor`, `resueltoPorNombre` y `resueltaEn` cuando existan. Orden descendente por fecha de resolución, realizado en memoria: no necesita un índice compuesto nuevo. Sin sesión devuelve 401 y un usuario no administrador recibe 403.
+
+Admin > Incidencias consume este endpoint en la vista Resueltas. Los filtros de texto y fecha son locales y los gráficos Recharts utilizan el conjunto filtrado: cantidad por UID del administrador, duración media por persona y evolución diaria de la media (horas entre `creado` y `resueltaEn`). Los días se agrupan en UTC. Los registros anteriores sin autor/fecha permanecen consultables; no se atribuyen al encargado ni se incluyen en medias sin fechas válidas.
+
+**Render (BUG-121):** desplegar el backend antes o junto al frontend. No se requieren variables de entorno nuevas, migración de registros antiguos ni índices nuevos para este endpoint.
 
 ### 17.1 `GET /v1/mensajes`
 

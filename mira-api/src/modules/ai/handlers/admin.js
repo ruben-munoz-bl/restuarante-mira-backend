@@ -195,7 +195,7 @@ module.exports = {
 
   resolveContacto: async (ctx, args) => {
     const contactoId = requireString(args || {}, "contactoId", "contactoId");
-    await contactosService.resolverIncidencia(contactoId, args);
+    await contactosService.resolverIncidencia(contactoId, args, ctx.user.uid);
     return { ok: true, contactoId };
   },
 };
