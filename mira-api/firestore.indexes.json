@@ -1,6 +1,15 @@
 {
   "indexes": [
     {
+      "collectionGroup": "visitas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "restauranteId", "order": "ASCENDING" },
+        { "fieldPath": "fecha", "order": "ASCENDING" },
+        { "fieldPath": "creada", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "restaurants",
       "queryScope": "COLLECTION",
       "fields": [

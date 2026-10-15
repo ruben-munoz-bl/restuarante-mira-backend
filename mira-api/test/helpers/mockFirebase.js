@@ -146,6 +146,16 @@ function makeQuery(collection, ops = {}) {
   return q;
 }
 
+// FieldValue.increment se resuelve al escribir, como la transformación del SDK.
+class Incremento {
+  constructor(n) { this.n = n; }
+}
+function resolverIncrementos(data, previo) {
+  if (data instanceof Incremento) return (typeof previo === "number" ? previo : 0) + data.n;
+  if (data instanceof Date || Array.isArray(data) || !data || typeof data !== "object") return clone(data);
+  return Object.fromEntries(Object.entries(data).map(([k, v]) => [k, resolverIncrementos(v, previo?.[k])]));
+}
+
 function makeDocRef(collection, id) {
   return {
     id,
@@ -159,6 +169,7 @@ function makeDocRef(collection, id) {
       };
     },
     async set(data, opts = {}) {
+      data = resolverIncrementos(data, col(collection).get(id));
       if (opts.merge) {
         const prev = col(collection).get(id) || {};
         col(collection).set(id, { ...prev, ...clone(data) });
@@ -169,6 +180,7 @@ function makeDocRef(collection, id) {
     },
     async update(data) {
       const prev = col(collection).get(id);
+      data = resolverIncrementos(data, prev);
       if (prev === undefined) {
         const err = new Error("No document to update");
         err.code = 5; // NOT_FOUND
@@ -291,7 +303,7 @@ const mockDb = {
   },
   FieldValue: {
     serverTimestamp: () => new Date(),
-    increment: (n) => n,
+    increment: (n) => new Incremento(n),
   },
   // settings no-op
   settings() {},
@@ -337,11 +349,13 @@ function installFirebaseMock() {
   const originalLoad = Module._load;
   Module._load = function (request, parent, isMain) {
     if (request === "firebase-admin") {
+      const firestore = () => mockDb;
+      firestore.FieldValue = mockDb.FieldValue;
       return {
         apps: [{ name: "[DEFAULT]" }],
         initializeApp: () => ({ name: "[DEFAULT]" }),
         credential: { cert: () => ({}) },
-        firestore: () => mockDb,
+        firestore,
         auth: () => mockAuth,
         Firestore: function Firestore() { return mockDb; },
         __isMock: true,

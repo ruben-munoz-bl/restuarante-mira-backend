@@ -49,6 +49,15 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // G08: visitas y su bloqueo de idempotencia solo por la API.
+    match /visitas/{id} {
+      allow read, write: if false;
+    }
+
+    match /visitas_pendientes/{id} {
+      allow read, write: if false;
+    }
+
     match /negocios/{id} {
       allow read: if isOwner(resource.data.uid) || isAdmin();
       allow create: if isSignedIn()

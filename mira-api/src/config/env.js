@@ -16,6 +16,7 @@ AI_MAX_TOKENS: z.coerce.number().default(2048),
 AI_ENABLED_TOOLS: z.string().default("all"),
   // Vacía = política compatible (localhost + *.vercel.app). Con valor = solo esos orígenes exactos.
   CORS_ALLOWED_ORIGINS: z.string().default(""),
+  VISITAS_SECRET: z.string().optional(),
   EXPO_ACCESS_TOKEN: z.string().optional(),
   BREVO_API_KEY: z.string().optional(),
   BREVO_WEBHOOK_TOKEN: z.string().optional(),
