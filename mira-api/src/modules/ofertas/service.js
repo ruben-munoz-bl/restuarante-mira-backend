@@ -3,7 +3,7 @@
  * restaurante; la oferta no guarda nada del usuario ni de su ubicación.
  */
 const { db } = require("../../middlewares/verifyFirebaseAuth");
-const { vigente } = require("./logica");
+const { vigente, coordenadasDe, distanciaM, nivelAlcanzado, RADIO_MAX } = require("./logica");
 
 const col = () => db.collection("ofertas");
 
@@ -60,6 +60,7 @@ async function crear(datos) {
     tx.set(ref, { restauranteId, ...campos(datos), creado: ahora, actualizado: ahora });
     if (datos.activa) tx.set(bloqueo(restauranteId), { ofertaId: ref.id });
   });
+  invalidarCache();
   return obtener(ref.id);
 }
 
@@ -82,6 +83,7 @@ async function editar(id, datos) {
     if (datos.activa && !mia) tx.set(bloqueo(restauranteId), { ofertaId: ref.id });
     if (!datos.activa && mia) tx.delete(bloqueo(restauranteId));
   });
+  invalidarCache();
   return obtener(id);
 }
 
@@ -94,6 +96,49 @@ async function borrar(id) {
     tx.delete(ref);
     if (lock.exists && lock.data().ofertaId === ref.id) tx.delete(bloqueo(snap.data().restauranteId));
   });
+  invalidarCache();
 }
 
-module.exports = { publicas, delRestaurante, crear, obtener, editar, borrar };
+/*
+ * «Ofertas cerca de mí»: los candidatos son las ofertas apuntadas por
+ * ofertas_activas (como mucho una por restaurante), con las coordenadas de su
+ * restaurante. Se cachean 60 s porque esta ruta se llama muy a menudo; crear,
+ * editar o borrar en esta instancia invalidan la caché al momento.
+ */
+const CACHE_MS = 60 * 1000;
+let cache = { hasta: 0, candidatos: null };
+
+function invalidarCache() {
+  cache = { hasta: 0, candidatos: null };
+}
+
+async function candidatos() {
+  if (cache.candidatos && Date.now() < cache.hasta) return cache.candidatos;
+  const bloqueos = await db.collection("ofertas_activas").get();
+  const lista = await Promise.all(bloqueos.docs.map(async (lock) => {
+    const [ofertaSnap, restSnap] = await Promise.all([
+      col().doc(String(lock.data().ofertaId)).get(),
+      db.collection("restaurants").doc(lock.id).get(),
+    ]);
+    if (!ofertaSnap.exists || !restSnap.exists) return null;
+    const coordenadas = coordenadasDe(restSnap.data());
+    if (!coordenadas) return null;
+    return { restaurante: { id: restSnap.id, nombre: restSnap.data().nombre || "", coordenadas }, oferta: vista(ofertaSnap) };
+  }));
+  cache = { hasta: Date.now() + CACHE_MS, candidatos: lista.filter(Boolean) };
+  return cache.candidatos;
+}
+
+/** La posición solo se usa para calcular; no se guarda ni se registra. */
+async function cerca(posicion) {
+  const resultado = [];
+  for (const c of await candidatos()) {
+    if (!vigente(c.oferta)) continue;
+    const d = Math.round(distanciaM(posicion, c.restaurante.coordenadas));
+    if (d > RADIO_MAX) continue;
+    resultado.push({ ...c, distanciaM: d, nivel: nivelAlcanzado(c.oferta.niveles, d) });
+  }
+  return resultado.sort((a, b) => a.distanciaM - b.distanciaM);
+}
+
+module.exports = { publicas, delRestaurante, crear, obtener, editar, borrar, cerca, invalidarCache };

@@ -10,7 +10,7 @@ const { validate } = require("../../middlewares/validate");
 const { rateLimit } = require("../../middlewares/rateLimit");
 const { comprobarRestaurante } = require("../../middlewares/ownership");
 const { documentoId } = require("../../middlewares/inputSchemas");
-const { crearSchema, editarSchema } = require("./logica");
+const { crearSchema, editarSchema, cercaSchema } = require("./logica");
 const svc = require("./service");
 
 const router = Router();
@@ -26,6 +26,14 @@ function responder(res, next, err) {
 router.get("/", validate(porRestaurante, "query"), async (req, res, next) => {
   try {
     res.json({ data: await svc.publicas(req.validated.restauranteId) });
+  } catch (err) { responder(res, next, err); }
+});
+
+// Fase 2 (G05). Se llama a menudo desde la app: límite por usuario o IP.
+// No registrar lat/lng: el log de peticiones guarda la ruta sin la query.
+router.get("/cerca", rateLimit(60000, 60), validate(cercaSchema, "query"), async (req, res, next) => {
+  try {
+    res.json({ data: await svc.cerca(req.validated) });
   } catch (err) { responder(res, next, err); }
 });
 

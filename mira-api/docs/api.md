@@ -3321,6 +3321,7 @@ Router: `src/modules/ofertas/routes.js`. Servicio: `service.js`. Reglas puras: `
 | Método / Ruta | Auth | Respuesta | Errores |
 |---|---|---|---|
 | `GET /v1/ofertas?restauranteId=` | pública | `200 { data: [Oferta] }` solo la activa y vigente hoy (Europe/Madrid) | 400 |
+| `GET /v1/ofertas/cerca?lat=&lng=` (G05) | pública + `rateLimit(60000, 60)` | `200 { data: [{ restaurante: { id, nombre, coordenadas: { lat, lng } }, oferta, distanciaM, nivel }] }`: ofertas activas y vigentes a ≤ 1000 m, de la más cercana a la más lejana; `nivel` = el de menor distancia con `distanciaM <= distancia` | 400, 429 |
 | `GET /v1/ofertas/mias?restauranteId=` | empresa dueña o admin | `200 { data: [Oferta] }` todas, de la más nueva a la más antigua | 400, 401, 403, 404 |
 | `POST /v1/ofertas` | empresa dueña o admin + `rateLimit(60000, 30)` | `201 Oferta` | 400, 401, 403, 404 (restaurante), 409 |
 | `PUT /v1/ofertas/:id` | empresa dueña o admin + `rateLimit(60000, 30)` | `200 Oferta` (sustituye título, activa, vigencia y niveles; `restauranteId` no se acepta) | 400, 401, 403, 404, 409 |
@@ -3328,7 +3329,10 @@ Router: `src/modules/ofertas/routes.js`. Servicio: `service.js`. Reglas puras: `
 
 El dueño se comprueba con `comprobarRestaurante` (uid/ownerUid del restaurante, `restaurantId(s)` del perfil o email del token). La consulta por restaurante es de igualdad simple y se ordena en memoria, así que no requiere índice compuesto. «Una activa» se garantiza con un documento de bloqueo `ofertas_activas/{restauranteId}` = `{ ofertaId }`, leído y escrito en la misma transacción que la oferta en crear, editar y borrar. Firestore serializa las transacciones que tocan ese documento, así que de dos altas o activaciones simultáneas una se confirma y la otra recibe 409. Desactivar o borrar la activa libera el bloqueo; un bloqueo que apunta a una oferta borrada o inactiva no impide activar otra.
 
+**`/cerca`:** la posición no se guarda ni se registra (los logs guardan la ruta sin la query). Candidatos = ofertas apuntadas por `ofertas_activas` con las coordenadas de su restaurante (`coordenadas.latitud/longitud`), cacheados 60 s en memoria; crear, editar o borrar en la misma instancia invalidan la caché. Restaurantes sin coordenadas no aparecen. Distancia con haversine.
+
 ```bash
+curl "$BASE/v1/ofertas/cerca?lat=41.3874&lng=2.1686"
 curl "$BASE/v1/ofertas?restauranteId=abc123"
 curl -X POST "$BASE/v1/ofertas" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"restauranteId":"abc123","titulo":"Menú de mediodía","activa":true,"niveles":[{"distancia":1000,"texto":"Café gratis","descuentoPct":5},{"distancia":500,"texto":"10 %","descuentoPct":10},{"distancia":100,"texto":"15 %","descuentoPct":15},{"distancia":20,"texto":"20 % + postre","descuentoPct":20}]}'

@@ -10,9 +10,11 @@ const { clearRateLimits } = require("../src/middlewares/rateLimit");
 
 let app;
 let logica;
+let svc;
 before(() => {
   app = require("../src/app");
   logica = require("../src/modules/ofertas/logica");
+  svc = require("../src/modules/ofertas/service");
 });
 
 const auth = (t) => ({ Authorization: `Bearer ${t}` });
@@ -25,6 +27,7 @@ const sinRestaurante = ({ restauranteId, ...resto }) => resto;
 beforeEach(() => {
   seedBase();
   clearRateLimits();
+  svc.invalidarCache();
   seed("usuarios", "u-emp2", { uid: "u-emp2", tipo: "empresa", email: "emp2@test.local", nombre: "Otra empresa" });
   // r1 es de u-emp; r2 de u-emp2.
   seed("restaurants", "r1", { ...store.get("restaurants").get("r1"), ownerUid: "u-emp" });
@@ -167,5 +170,69 @@ describe("una sola activa ante peticiones simultáneas (P1 de la revisión de Co
   test("un bloqueo que apunta a una oferta que ya no existe no impide activar otra", async () => {
     seed("ofertas_activas", "r1", { ofertaId: "borrada" });
     assert.equal((await crear(oferta())).status, 201);
+  });
+});
+
+describe("GET /v1/ofertas/cerca (G05)", () => {
+  // r1 en Madrid (40.4, -3.7). 1 grado de latitud ≈ 111 195 m.
+  const R1 = { lat: 40.4, lng: -3.7 };
+  const alNorte = (m) => ({ lat: R1.lat + m / 111195, lng: R1.lng });
+  const cerca = (p) => request(app).get(`/v1/ofertas/cerca?lat=${p.lat}&lng=${p.lng}`);
+
+  test("haversine y nivel alcanzado en cada franja", () => {
+    assert.ok(Math.abs(logica.distanciaM(R1, alNorte(900)) - 900) < 2);
+    const n = niveles();
+    assert.equal(logica.nivelAlcanzado(n, 900).distancia, 1000);
+    assert.equal(logica.nivelAlcanzado(n, 400).distancia, 500);
+    assert.equal(logica.nivelAlcanzado(n, 50).distancia, 100);
+    assert.equal(logica.nivelAlcanzado(n, 15).distancia, 20);
+    assert.equal(logica.nivelAlcanzado(n, 1001), null);
+  });
+
+  test("a 900, 400, 50 y 10 m devuelve el nivel correcto; a 1500 m no aparece", async () => {
+    await crear(oferta());
+    for (const [m, nivel] of [[900, 1000], [400, 500], [50, 100], [10, 20]]) {
+      const res = await cerca(alNorte(m));
+      assert.equal(res.status, 200);
+      assert.equal(res.body.data.length, 1, `a ${m} m`);
+      assert.equal(res.body.data[0].nivel.distancia, nivel, `a ${m} m`);
+      assert.ok(Math.abs(res.body.data[0].distanciaM - m) <= 2);
+      assert.equal(res.body.data[0].restaurante.id, "r1");
+      assert.deepEqual(res.body.data[0].restaurante.coordenadas, R1);
+    }
+    assert.deepEqual((await cerca(alNorte(1500))).body.data, []);
+  });
+
+  test("ordena por distancia y omite inactivas, fuera de vigencia y restaurantes sin coordenadas", async () => {
+    seed("restaurants", "r2", { ...store.get("restaurants").get("r2"), ownerUid: "u-emp2", coordenadas: { latitud: R1.lat + 300 / 111195, longitud: R1.lng } });
+    await crear(oferta());
+    await crear(oferta({ restauranteId: "r2" }), otraEmpresa);
+    const res = await cerca(alNorte(250));
+    assert.deepEqual(res.body.data.map((x) => x.restaurante.id), ["r2", "r1"]);
+    await crear(oferta({ restauranteId: "r3" }), tokens.admin); // r3 sin coordenadas
+    const id2 = res.body.data[0].oferta.id;
+    await request(app).put(`/v1/ofertas/${id2}`).set(auth(otraEmpresa)).send({ ...sinRestaurante(oferta()), activa: false });
+    assert.deepEqual((await cerca(alNorte(250))).body.data.map((x) => x.restaurante.id), ["r1"]);
+  });
+
+  test("una oferta activa fuera de su vigencia no aparece", async () => {
+    await crear(oferta({ desde: "2020-01-01", hasta: "2020-12-31" }));
+    assert.deepEqual((await cerca(alNorte(10))).body.data, []);
+  });
+
+  test("400 con lat/lng ausentes o fuera de rango", async () => {
+    assert.equal((await request(app).get("/v1/ofertas/cerca")).status, 400);
+    assert.equal((await request(app).get("/v1/ofertas/cerca?lat=91&lng=0")).status, 400);
+    assert.equal((await request(app).get("/v1/ofertas/cerca?lat=abc&lng=0")).status, 400);
+  });
+
+  test("crear o borrar invalida la caché y la posición no se guarda en Firestore", async () => {
+    assert.deepEqual((await cerca(alNorte(10))).body.data, []);
+    const a = (await crear(oferta())).body;
+    assert.equal((await cerca(alNorte(10))).body.data.length, 1, "la caché no esconde la oferta nueva");
+    await request(app).delete(`/v1/ofertas/${a.id}`).set(auth(tokens.empresa));
+    assert.deepEqual((await cerca(alNorte(10))).body.data, []);
+    const colecciones = [...store.keys()];
+    assert.ok(!colecciones.some((c) => /posici|ubicac|location|cerca/i.test(c)), colecciones.join(","));
   });
 });
