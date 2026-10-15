@@ -1,5 +1,6 @@
 const { db } = require("../../middlewares/verifyFirebaseAuth");
 const { logger } = require("../../middlewares/errorHandler");
+const { notificarMensaje } = require("../push/notificar");
 const { env } = require("../../config/env");
 
 const ESTADOS_PENDIENTES = new Set(["pendiente", "confirmada", "activa", "en_mesa", "en mesa"]);
@@ -731,6 +732,7 @@ async function enviarMensajeDueno(restaurantId, { asunto, mensaje, adminUid }) {
     ref = await db.collection("mensajes").add({ ...doc, uid: null, emailDueno });
   }
 
+  await notificarMensaje(uidDueno, ref.id);
   logger.info({ restaurantId, uidDueno, mensajeId: ref.id }, "Admin message to owner");
   return {
     ok: true,

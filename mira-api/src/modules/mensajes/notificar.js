@@ -4,6 +4,7 @@
  * Best-effort: un fallo al avisar nunca debe romper la acción que lo provoca.
  */
 const { db } = require("../../middlewares/verifyFirebaseAuth");
+const { notificarMensaje } = require("../push/notificar");
 const { logger } = require("../../middlewares/errorHandler");
 
 async function enviarMensaje(uid, { titulo, cuerpo, enlace = null, enlaceTexto = null, tipo = "sistema", extra = {} }) {
@@ -23,6 +24,7 @@ async function enviarMensaje(uid, { titulo, cuerpo, enlace = null, enlaceTexto =
       creado: ahora,
       ...extra,
     });
+    await notificarMensaje(uid, ref.id);
     return ref.id;
   } catch (err) {
     logger.warn({ uid, tipo, err: err.message }, "No se pudo enviar el mensaje");
