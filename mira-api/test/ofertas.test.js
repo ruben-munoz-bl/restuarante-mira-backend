@@ -235,4 +235,56 @@ describe("GET /v1/ofertas/cerca (G05)", () => {
     const colecciones = [...store.keys()];
     assert.ok(!colecciones.some((c) => /posici|ubicac|location|cerca/i.test(c)), colecciones.join(","));
   });
+
+  test("bordes: la distancia real decide radio y nivel (±0,4 m de cada umbral)", async () => {
+    await crear(oferta());
+    for (const umbral of [20, 100, 500]) {
+      const dentro = (await cerca(alNorte(umbral - 0.4))).body.data[0];
+      const fuera = (await cerca(alNorte(umbral + 0.4))).body.data[0];
+      assert.equal(dentro.nivel.distancia, umbral, `${umbral - 0.4} m`);
+      assert.ok(fuera.nivel.distancia > umbral, `${umbral + 0.4} m no adelanta el nivel`);
+    }
+    assert.equal((await cerca(alNorte(999.6))).body.data.length, 1);
+    assert.deepEqual((await cerca(alNorte(1000.4))).body.data, [], "1000,4 m queda fuera aunque redondee a 1000");
+  });
+
+  test("una carga empezada antes de desactivar no vuelve a meter la oferta en la caché", async () => {
+    const { db } = require("../src/middlewares/verifyFirebaseAuth");
+    const a = (await crear(oferta())).body;
+    let soltar;
+    const barrera = new Promise((r) => { soltar = r; });
+    const original = db.collection;
+    db.collection = (nombre) => {
+      const c = original.call(db, nombre);
+      if (nombre !== "restaurants") return c;
+      return { ...c, doc: (id) => { const ref = c.doc(id); return { ...ref, get: async () => { await barrera; return ref.get(); } }; } };
+    };
+    try {
+      const pendiente = svc.cerca(alNorte(10)); // carga en curso, parada en el restaurante
+      await new Promise((r) => setImmediate(r));
+      await svc.editar(a.id, { ...sinRestaurante(oferta()), activa: false }); // invalida
+      soltar();
+      assert.deepEqual(await pendiente, [], "la respuesta no usa la carga vieja");
+    } finally { db.collection = original; }
+    assert.deepEqual((await cerca(alNorte(10))).body.data, [], "y la caché tampoco");
+  });
+
+  test("dos peticiones simultáneas en frío comparten una sola carga", async () => {
+    const { db } = require("../src/middlewares/verifyFirebaseAuth");
+    await crear(oferta());
+    let lecturas = 0;
+    const original = db.collection;
+    db.collection = (nombre) => {
+      const c = original.call(db, nombre);
+      return nombre === "ofertas_activas" ? { ...c, get: async () => { lecturas++; return c.get(); } } : c;
+    };
+    try {
+      svc.invalidarCache();
+      const [x, y] = await Promise.all([svc.cerca(alNorte(10)), svc.cerca(alNorte(10))]);
+      assert.equal(x.length, 1);
+      assert.equal(y.length, 1);
+      assert.equal(lecturas, 1);
+    } finally { db.collection = original; }
+  });
 });
+

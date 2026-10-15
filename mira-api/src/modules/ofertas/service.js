@@ -106,14 +106,16 @@ async function borrar(id) {
  * editar o borrar en esta instancia invalidan la caché al momento.
  */
 const CACHE_MS = 60 * 1000;
-let cache = { hasta: 0, candidatos: null };
+// generacion sube en cada invalidación: una carga empezada antes no puede
+// publicar su resultado (traería ofertas ya desactivadas o borradas). Las
+// peticiones simultáneas comparten la misma carga en curso.
+let cache = { generacion: 0, hasta: 0, candidatos: null, cargando: null };
 
 function invalidarCache() {
-  cache = { hasta: 0, candidatos: null };
+  cache = { generacion: cache.generacion + 1, hasta: 0, candidatos: null, cargando: null };
 }
 
-async function candidatos() {
-  if (cache.candidatos && Date.now() < cache.hasta) return cache.candidatos;
+async function cargarCandidatos() {
   const bloqueos = await db.collection("ofertas_activas").get();
   const lista = await Promise.all(bloqueos.docs.map(async (lock) => {
     const [ofertaSnap, restSnap] = await Promise.all([
@@ -125,20 +127,40 @@ async function candidatos() {
     if (!coordenadas) return null;
     return { restaurante: { id: restSnap.id, nombre: restSnap.data().nombre || "", coordenadas }, oferta: vista(ofertaSnap) };
   }));
-  cache = { hasta: Date.now() + CACHE_MS, candidatos: lista.filter(Boolean) };
-  return cache.candidatos;
+  return lista.filter(Boolean);
 }
 
-/** La posición solo se usa para calcular; no se guarda ni se registra. */
+async function candidatos() {
+  if (cache.candidatos && Date.now() < cache.hasta) return cache.candidatos;
+  if (!cache.cargando) {
+    const generacion = cache.generacion;
+    const cargando = cargarCandidatos();
+    cache.cargando = cargando;
+    cargando.then((lista) => {
+      if (cache.generacion === generacion) cache = { generacion, hasta: Date.now() + CACHE_MS, candidatos: lista, cargando: null };
+    }, () => {
+      if (cache.generacion === generacion && cache.cargando === cargando) cache.cargando = null;
+    });
+  }
+  const generacion = cache.generacion;
+  const lista = await cache.cargando;
+  // Si se invalidó mientras tanto, esta carga es vieja: volver a pedir.
+  return cache.generacion === generacion ? lista : candidatos();
+}
+
+/**
+ * La posición solo se usa para calcular; no se guarda ni se registra. Radio,
+ * nivel y orden usan la distancia real; solo se redondea el dato mostrado.
+ */
 async function cerca(posicion) {
   const resultado = [];
   for (const c of await candidatos()) {
     if (!vigente(c.oferta)) continue;
-    const d = Math.round(distanciaM(posicion, c.restaurante.coordenadas));
+    const d = distanciaM(posicion, c.restaurante.coordenadas);
     if (d > RADIO_MAX) continue;
-    resultado.push({ ...c, distanciaM: d, nivel: nivelAlcanzado(c.oferta.niveles, d) });
+    resultado.push({ ...c, d, nivel: nivelAlcanzado(c.oferta.niveles, d) });
   }
-  return resultado.sort((a, b) => a.distanciaM - b.distanciaM);
+  return resultado.sort((a, b) => a.d - b.d).map(({ d, ...r }) => ({ ...r, distanciaM: Math.round(d) }));
 }
 
 module.exports = { publicas, delRestaurante, crear, obtener, editar, borrar, cerca, invalidarCache };
