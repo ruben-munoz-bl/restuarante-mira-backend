@@ -33,6 +33,11 @@ cron.schedule("*/10 * * * *", () => runCron("espera_jams", async () => {
   await require("./modules/jams/service").cerrarVencidas();
 }), { timezone: "UTC" });
 
+// T04: recibos diferidos de Expo y limpieza de dispositivos desregistrados.
+cron.schedule("*/5 * * * *", () => runCron("push_recibos", () => require("./modules/push/service").revisarRecibos()), {
+  timezone: "UTC",
+});
+
 const port = env.PORT;
 const server = app.listen(port, () => {
   logger.info({ port, env: env.NODE_ENV }, "MIRA API listening");
