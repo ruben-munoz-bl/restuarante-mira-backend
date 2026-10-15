@@ -87,4 +87,27 @@ function nivelAlcanzado(niveles, d) {
   return [...niveles].sort((x, y) => x.distancia - y.distancia).find((n) => d <= n.distancia) || null;
 }
 
-module.exports = { DISTANCIAS, RADIO_MAX, erroresNiveles, crearSchema, editarSchema, cercaSchema, hoyMadrid, vigente, coordenadasDe, distanciaM, nivelAlcanzado };
+/* Estadísticas (contrato fase 3, para G07): contadores agregados sin datos de usuario. */
+const MAX_DIAS_ESTADISTICAS = 92;
+
+const avisoSchema = z.object({
+  nivel: z.union(DISTANCIAS.map((d) => z.literal(d))),
+}).strict();
+
+const estadisticasSchema = z.object({
+  restauranteId: documentoId,
+  desde: fechaCalendario,
+  hasta: fechaCalendario,
+}).strict().superRefine((d, ctx) => {
+  const dias = (Date.parse(`${d.hasta}T12:00:00Z`) - Date.parse(`${d.desde}T12:00:00Z`)) / 86400000;
+  if (dias < 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["hasta"], message: "No puede ser anterior a desde" });
+  else if (dias >= MAX_DIAS_ESTADISTICAS) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["hasta"], message: `Como máximo ${MAX_DIAS_ESTADISTICAS} días` });
+});
+
+/** Documento de contadores en la forma del contrato (los niveles que falten, a 0). */
+function vistaEstadistica(d) {
+  const avisos = Object.fromEntries(DISTANCIAS.map((n) => [n, Number(d.avisos?.[n]) || 0]));
+  return { fecha: d.fecha, avisos, visitas: Number(d.visitas) || 0, confirmadas: Number(d.confirmadas) || 0 };
+}
+
+module.exports = { DISTANCIAS, RADIO_MAX, avisoSchema, estadisticasSchema, vistaEstadistica, erroresNiveles, crearSchema, editarSchema, cercaSchema, hoyMadrid, vigente, coordenadasDe, distanciaM, nivelAlcanzado };

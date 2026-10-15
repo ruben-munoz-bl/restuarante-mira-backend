@@ -49,6 +49,11 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Contadores agregados de ofertas (estadísticas G07), solo la API.
+    match /ofertas_stats/{id} {
+      allow read, write: if false;
+    }
+
     match /negocios/{id} {
       allow read: if isOwner(resource.data.uid) || isAdmin();
       allow create: if isSignedIn()

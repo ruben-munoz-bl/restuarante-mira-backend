@@ -146,6 +146,24 @@ function makeQuery(collection, ops = {}) {
   return q;
 }
 
+// FieldValue.increment: centinela que set/update suman al valor anterior (como
+// Firestore). Los mapas que contienen un incremento se fusionan en profundidad;
+// el resto de valores se sustituyen igual que antes.
+const INCREMENTO = "__mockIncrement";
+function tieneIncremento(v) {
+  return v && typeof v === "object" && !Array.isArray(v) && !(v instanceof Date)
+    && (INCREMENTO in v || Object.values(v).some(tieneIncremento));
+}
+function aplicarCambios(prev, data) {
+  const out = { ...(prev || {}) };
+  for (const [k, v] of Object.entries(data)) {
+    if (v && typeof v === "object" && INCREMENTO in v) out[k] = (Number(out[k]) || 0) + v[INCREMENTO];
+    else if (tieneIncremento(v)) out[k] = aplicarCambios(out[k], v);
+    else out[k] = v;
+  }
+  return out;
+}
+
 function makeDocRef(collection, id) {
   return {
     id,
@@ -161,7 +179,7 @@ function makeDocRef(collection, id) {
     async set(data, opts = {}) {
       if (opts.merge) {
         const prev = col(collection).get(id) || {};
-        col(collection).set(id, { ...prev, ...clone(data) });
+        col(collection).set(id, aplicarCambios(prev, clone(data)));
       } else {
         col(collection).set(id, clone(data));
       }
@@ -174,7 +192,7 @@ function makeDocRef(collection, id) {
         err.code = 5; // NOT_FOUND
         throw err;
       }
-      col(collection).set(id, { ...prev, ...clone(data) });
+      col(collection).set(id, aplicarCambios(prev, clone(data)));
       return this;
     },
     async delete() {
@@ -291,7 +309,7 @@ const mockDb = {
   },
   FieldValue: {
     serverTimestamp: () => new Date(),
-    increment: (n) => n,
+    increment: (n) => ({ [INCREMENTO]: n }),
   },
   // settings no-op
   settings() {},
@@ -341,7 +359,7 @@ function installFirebaseMock() {
         apps: [{ name: "[DEFAULT]" }],
         initializeApp: () => ({ name: "[DEFAULT]" }),
         credential: { cert: () => ({}) },
-        firestore: () => mockDb,
+        firestore: Object.assign(() => mockDb, { FieldValue: mockDb.FieldValue }),
         auth: () => mockAuth,
         Firestore: function Firestore() { return mockDb; },
         __isMock: true,

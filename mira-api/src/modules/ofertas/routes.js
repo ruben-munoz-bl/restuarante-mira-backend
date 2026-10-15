@@ -10,7 +10,7 @@ const { validate } = require("../../middlewares/validate");
 const { rateLimit } = require("../../middlewares/rateLimit");
 const { comprobarRestaurante } = require("../../middlewares/ownership");
 const { documentoId } = require("../../middlewares/inputSchemas");
-const { crearSchema, editarSchema, cercaSchema } = require("./logica");
+const { crearSchema, editarSchema, cercaSchema, avisoSchema, estadisticasSchema } = require("./logica");
 const svc = require("./service");
 
 const router = Router();
@@ -34,6 +34,24 @@ router.get("/", validate(porRestaurante, "query"), async (req, res, next) => {
 router.get("/cerca", rateLimit(60000, 60), validate(cercaSchema, "query"), async (req, res, next) => {
   try {
     res.json({ data: await svc.cerca(req.validated) });
+  } catch (err) { responder(res, next, err); }
+});
+
+// Estadísticas (contrato fase 3, para G07 del PC 3).
+router.get("/estadisticas", ...soloEmpresa, validate(estadisticasSchema, "query"), async (req, res, next) => {
+  try {
+    const { restauranteId, desde, hasta } = req.validated;
+    await comprobarRestaurante(restauranteId, req.user);
+    res.json({ data: await svc.estadisticas(restauranteId, desde, hasta) });
+  } catch (err) { responder(res, next, err); }
+});
+
+// Sin sesión: la app avisa de que mostró un nivel. Límite por IP (no hay usuario).
+// La clave no incluye el id: el límite es por IP para todas las ofertas a la vez.
+router.post("/:id/avisos", rateLimit(60000, 30, (req) => `ofertas-avisos:${req.ip}`), validate(porId, "params"), validate(avisoSchema), async (req, res, next) => {
+  try {
+    await svc.registrarAviso(req.params.id, req.validated.nivel);
+    res.status(204).end();
   } catch (err) { responder(res, next, err); }
 });
 
