@@ -11,10 +11,6 @@
         {
           "fieldPath": "rating_yelp",
           "order": "DESCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "DESCENDING"
         }
       ]
     },
@@ -29,10 +25,6 @@
         {
           "fieldPath": "rating_yelp",
           "order": "DESCENDING"
-        },
-        {
-          "fieldPath": "__name__",
-          "order": "DESCENDING"
         }
       ]
     },
@@ -46,10 +38,6 @@
         },
         {
           "fieldPath": "rating_yelp",
-          "order": "DESCENDING"
-        },
-        {
-          "fieldPath": "__name__",
           "order": "DESCENDING"
         }
       ]
