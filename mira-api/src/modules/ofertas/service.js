@@ -170,9 +170,11 @@ async function cerca(posicion) {
  */
 const stats = (restauranteId, fecha) => db.collection("ofertas_stats").doc(`${restauranteId}_${fecha}`);
 
-function sumar(restauranteId, cambios) {
-  const fecha = hoyMadrid();
-  return stats(restauranteId, fecha).set({ restauranteId: String(restauranteId), fecha, ...cambios }, { merge: true });
+/** Con `tx`, la suma va dentro de esa transacción (la escritura no se espera). */
+function sumar(restauranteId, cambios, { tx = null, fecha = hoyMadrid() } = {}) {
+  const ref = stats(restauranteId, fecha);
+  const datos = { restauranteId: String(restauranteId), fecha, ...cambios };
+  return tx ? tx.set(ref, datos, { merge: true }) : ref.set(datos, { merge: true });
 }
 
 /** La app avisa de que ha mostrado un nivel; solo cuenta ofertas activas y vigentes. */
@@ -182,10 +184,13 @@ async function registrarAviso(ofertaId, nivel) {
   await sumar(oferta.restauranteId, { avisos: { [nivel]: admin.firestore.FieldValue.increment(1) } });
 }
 
-/** Para el módulo de visitas (G08): campo "visitas" al crear y "confirmadas" al confirmar. */
-async function contarVisita(restauranteId, campo) {
+/**
+ * Para el módulo de visitas (G08): campo "visitas" al crear y "confirmadas" al
+ * confirmar. Opciones: { tx, fecha } para sumar dentro de su transacción.
+ */
+async function contarVisita(restauranteId, campo, opciones) {
   if (!["visitas", "confirmadas"].includes(campo)) throw new Error(`Campo de estadística no válido: ${campo}`);
-  await sumar(restauranteId, { [campo]: admin.firestore.FieldValue.increment(1) });
+  await sumar(restauranteId, { [campo]: admin.firestore.FieldValue.increment(1) }, opciones);
 }
 
 async function estadisticas(restauranteId, desde, hasta) {

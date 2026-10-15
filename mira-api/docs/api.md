@@ -3344,6 +3344,35 @@ curl -X POST "$BASE/v1/ofertas" -H "Authorization: Bearer $TOKEN" -H "Content-Ty
 
 ---
 
+## 22 ter. Visitas con QR — `/v1/visitas` (G08)
+
+Contrato de fase 3 en la bóveda. Módulo `src/modules/visitas/`: `logica.js` puro para firma/estado, `service.js` para transacciones y `routes.js` con zod estricto. La posición se usa exclusivamente para validar llegada y nunca se persiste ni se registra.
+
+| Método / Ruta | Autenticación | Respuesta / errores de negocio |
+|---|---|---|
+| `POST /v1/visitas` | cliente | `201 { visita, qr }`; 404 restaurante/sin oferta vigente/coordenadas; 422 `{ error: "LEJOS", distanciaM }`; 429 (30/min por usuario) |
+| `GET /v1/visitas/:id` | propietario de la visita, sin excepción admin | `200 Visita`; 403 ajena; 404 inexistente |
+| `POST /v1/visitas/validar` | empresa dueña o admin | `200 { visita, aplicar: { texto, descuentoPct }, cliente: { nombre } }`; errores QR descritos abajo; 429 (60/min por usuario) |
+| `GET /v1/visitas/restaurante?restauranteId=&fecha=` | empresa dueña o admin | `200 { data: [Visita + cliente: { nombre }] }`, más recientes primero; fecha opcional, hoy en Madrid; 403/404 |
+
+Todos requieren Firebase Bearer (401 `MISSING_TOKEN`/`INVALID_TOKEN`). Validación zod: 400 `VALIDATION_ERROR` con details; no acepta campos extra. Crear recibe `{ restauranteId, lat, lng }`, coordenadas numéricas finitas dentro de rango. Validar recibe `{ qr }`. `fecha` debe ser fecha de calendario AAAA-MM-DD válida.
+
+Visita pública: `{ id, restauranteId, ofertaId, nivel, estado, creada, caducaEn, confirmadaEn, comisionPct }`. No devuelve `uid`, email ni campos internos; al restaurante solo se añade `cliente.nombre` (vacío si falta perfil). `nivel` es copia del nivel 20 m al crear, no cambia con futuras ediciones de la oferta. Los timestamps son ISO. GET/lista proyectan `caducada` si la pendiente ha vencido, sin convertir una confirmada en caducada.
+
+Crear reutiliza `ofertas.service.publicas`, y `distanciaM`, `coordenadasDe`, `vigente` de su lógica. Relee restaurante/oferta en la transacción: exige oferta activa y vigente y distancia **real ≤ 50 m**, aunque la llegada sea el nivel 20 m. Si está lejos, solo devuelve distancia redondeada (puede mostrar 50 estando a 50,4); no guarda esa distancia ni coordenadas. Sin coordenadas del restaurante no puede probar llegada y devuelve 404.
+
+`visitas_pendientes/{sha256([uid, restauranteId])}` referencia la pendiente y serializa altas simultáneas con la visita en la misma transacción. Si sigue sin caducar se devuelve la misma, sin ampliar la caducidad, alterar el nivel ni contar otra visita. Se vuelve a firmar con el ID/fecha originales: el texto HMAC es determinista y por tanto idéntico. Decisión de Izan: mantener los 15 minutos originales al reemitir. Al sustituir una pendiente caducada se marca `caducada`; al confirmar se libera su bloqueo.
+
+QR: `v1.<visitaId>.<caducaEnMs>.<firma>`, HMAC-SHA256 base64url de los tres primeros componentes. Firma canónica, comparación de buffers con `timingSafeEqual`; caduca a los 15 min y el instante exacto de caducidad ya no se acepta. **VISITAS_SECRET** se declara en env.js y .env.example, mínimo 32 caracteres, aleatorio y configurado solo en Render. Si falta/es corto, crear y validar devuelven 503 `VISITAS_NO_CONFIGURADO`; no hay secreto de respaldo ni se registran QR/firmas. Cambiar el secreto invalida los QR emitidos.
+
+Validación en orden: formato/firma → caducidad → visita existe → `comprobarRestaurante` → estado pendiente. 400 `QR_INVALIDO`, 410 `QR_CADUCADO`, 404 `NOT_FOUND`, 403 `OTRO_RESTAURANTE`, 409 `QR_USADO`. Dentro de la transacción se relee la visita, se comprueba otra vez la caducidad y su coincidencia con la fecha firmada, y se copian `restaurants.comisionPct` y `confirmadaEn`. Cero por ciento se conserva; si el campo no existe, usa `COMISION_PCT` para restaurantes antiguos. No se calcula ni cobra ningún importe. Dos escaneos simultáneos solo confirman una vez; incluso si ya se usó, un QR expirado devuelve primero 410 conforme al orden del contrato.
+
+Los contadores se actualizan **en la misma transacción** con `admin.firestore.FieldValue.increment`: `visitas` al crear una nueva y `confirmadas` al confirmar, en `ofertas_stats/{restauranteId}_{fecha}` con merge, conservando avisos y otros contadores. Fecha de cada evento en Madrid; la confirmación tras medianoche cuenta el día de confirmación. Sin UID o ubicación en esos agregados. La visita guarda una fecha interna de creación (Madrid), usada para filtrar la lista del panel. No se tocan los endpoints de avisos/estadísticas del módulo de ofertas.
+
+**Despliegue pendiente de revisión:** reglas cerradas para `visitas` y `visitas_pendientes`. Nuevo índice compuesto en `firestore.indexes.json`: colección `visitas`, `restauranteId ASC`, `fecha ASC`, `creada DESC`. Publicarlo y esperar a que esté listo antes de usar la lista del panel. No usar `--force` al desplegar índices ni borrar índices existentes; partir de main alineado con Firestore. Configurar VISITAS_SECRET en Render antes de habilitar QR. Codex no despliega esta rama.
+
+---
+
 ## 23. Resumen de los 105 endpoints
 
 ### 23.1 Salud (no cuenta en los 105 de negocio)
