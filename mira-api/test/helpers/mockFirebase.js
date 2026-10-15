@@ -230,9 +230,19 @@ function makeCollection(name) {
   };
 }
 
+// Las transacciones se ejecutan de una en una: Firestore aísla las que leen y
+// escriben los mismos documentos (reintenta la que pierde), y sin esta cola los
+// tests de peticiones simultáneas pasarían aunque el código no fuese atómico.
+let colaTransacciones = Promise.resolve();
+
 const mockDb = {
   collection: (name) => makeCollection(name),
-  async runTransaction(fn) {
+  runTransaction(fn) {
+    const turno = colaTransacciones.then(() => mockDb._ejecutarTransaccion(fn));
+    colaTransacciones = turno.catch(() => {});
+    return turno;
+  },
+  async _ejecutarTransaccion(fn) {
     // Firestore exige que todas las lecturas se hagan antes de cualquier
     // escritura: sin esto, los tests no detectan "read after write" (que en
     // producción revienta la transacción y devuelve 500).

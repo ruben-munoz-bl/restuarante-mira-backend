@@ -39,6 +39,16 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // G02: ofertas por distancia, solo a través de la API (Admin SDK).
+    match /ofertas/{id} {
+      allow read, write: if false;
+    }
+
+    // Bloqueo de «una sola oferta activa por restaurante» (G02), solo la API.
+    match /ofertas_activas/{restauranteId} {
+      allow read, write: if false;
+    }
+
     match /negocios/{id} {
       allow read: if isOwner(resource.data.uid) || isAdmin();
       allow create: if isSignedIn()
