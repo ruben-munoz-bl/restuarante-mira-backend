@@ -47,7 +47,8 @@ router.get("/estadisticas", ...soloEmpresa, validate(estadisticasSchema, "query"
 });
 
 // Sin sesión: la app avisa de que mostró un nivel. Límite por IP (no hay usuario).
-router.post("/:id/avisos", rateLimit(60000, 30), validate(porId, "params"), validate(avisoSchema), async (req, res, next) => {
+// La clave no incluye el id: el límite es por IP para todas las ofertas a la vez.
+router.post("/:id/avisos", rateLimit(60000, 30, (req) => `ofertas-avisos:${req.ip}`), validate(porId, "params"), validate(avisoSchema), async (req, res, next) => {
   try {
     await svc.registrarAviso(req.params.id, req.validated.nivel);
     res.status(204).end();

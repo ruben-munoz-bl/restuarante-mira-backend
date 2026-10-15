@@ -344,4 +344,13 @@ describe("estadísticas de ofertas (contrato fase 3, para G07)", () => {
     assert.equal((await verStats(q, otraEmpresa)).status, 403);
     assert.equal((await verStats(q, tokens.admin)).status, 200);
   });
+
+  test("el límite de avisos es por IP aunque se cambie de oferta (P2 de Codex)", async () => {
+    const a = (await crear(oferta())).body;
+    const b = (await crear(oferta({ restauranteId: "r2" }), otraEmpresa)).body;
+    for (let i = 0; i < 30; i++) assert.equal((await avisar(i % 2 ? a.id : b.id, 1000)).status, 204);
+    assert.equal((await avisar(a.id, 1000)).status, 429);
+    assert.equal((await avisar(b.id, 1000)).status, 429, "otra oferta no reinicia el límite");
+  });
 });
+
