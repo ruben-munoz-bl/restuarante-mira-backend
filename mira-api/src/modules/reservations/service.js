@@ -141,7 +141,7 @@ async function cancelarReserva(reservaId, uid, esAdmin = false) {
     tx.set(aforoRef, { ocupadas: Math.max(0, ocupadas - 1) }, { merge: true });
     return r;
   });
-  await notificarReserva(reserva.uid, reservaId, "cancelada");
+  if (reserva.uid !== uid) await notificarReserva(reserva.uid, reservaId, "cancelada");
   logger.info({ reservaId, uid }, "Reservation cancelled");
   // Hay una mesa libre: avisa al primero de la lista de espera (no bloquea la respuesta si falla).
   await espera().alLiberarseMesa(reserva.restaurantId, reserva.fecha, reserva.hora);

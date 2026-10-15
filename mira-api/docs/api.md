@@ -3704,13 +3704,13 @@ Se reutiliza `enviarPush` sin nuevos endpoints de envío. `push/notificar.js` co
 | Evento persistido | Destinatario | Datos del push |
 |---|---|---|
 | Estado pasa a `confirmada` o `cancelada` desde dashboard/IA | `uid` de la reserva | `{ ruta: "reservas", reservaId, estado }` |
-| Cancelación desde `PUT /v1/reservations/:id/cancel` (cliente/admin) | `uid` de la reserva | `{ ruta: "reservas", reservaId, estado: "cancelada" }` |
+| Cancelación desde `PUT /v1/reservations/:id/cancel` por otra cuenta autorizada (admin) | `uid` de la reserva | `{ ruta: "reservas", reservaId, estado: "cancelada" }` |
 | Nuevo mensaje mediante `mensajes/notificar.enviarMensaje` (espera/JAM incluidos) | UID destinatario del mensaje | `{ ruta: "mensajes", mensajeId }` |
 | Mensaje de admin al dueño (`POST /v1/dashboard/restaurant/:id/message`) | UID dueño del restaurante | `{ ruta: "mensajes", mensajeId }` |
 
 El mensaje de push del buzón es genérico y traducido: no muestra asunto ni contenido privado en la pantalla de bloqueo. Un mensaje pendiente de entrega por email, sin UID asociado, se guarda sin intentar push. No se modifica el contenido del buzón.
 
-Las reservas nuevas siguen en `pendiente`; el aviso de confirmación se genera cuando el restaurante/admin cambia el estado a `confirmada`. Leer y actualizar el estado ocurre en una transacción y el aviso se envía **después de confirmar**; repetir el mismo estado no vuelve a notificar, y reintentar el callback de Firestore tampoco. Cancelar desde cliente/admin usa la transacción existente y mantiene el 409 si ya estaba cancelada. Los demás estados no generan un aviso T05.
+Las reservas nuevas siguen en `pendiente`; el aviso de confirmación se genera cuando el restaurante/admin cambia el estado a `confirmada`. Leer y actualizar el estado ocurre en una transacción y el aviso se envía **después de confirmar**; repetir el mismo estado no vuelve a notificar, y reintentar el callback de Firestore tampoco. Cancelar desde cliente/admin usa la transacción existente y mantiene el 409 si ya estaba cancelada. En esa ruta se omite el push cuando el actor es el propio titular (`reserva.uid === uid`), incluso si tiene rol admin; se sigue avisando al cliente cuando cancela otra cuenta autorizada. Los demás estados no generan un aviso T05.
 
 Los avisos son best-effort: se intenta el envío tras la escritura, sin revertir la reserva/mensaje ni devolver error HTTP si falla push. No hay cola persistida ni reintento del evento de negocio; una caída entre el commit y el envío puede perder el aviso. Los recibos de Expo de T04 siguen revisándose como antes. Sin cambios en reglas o índices en T05. Preferencias y otros eventos se abordan en T10 o tareas posteriores.
 

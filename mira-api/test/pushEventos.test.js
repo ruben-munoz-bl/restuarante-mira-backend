@@ -70,15 +70,15 @@ test("cancelar desde el panel notifica al cliente una sola vez y libera el aforo
   assert.equal(enviados.length, 3);
 });
 
-test("cancelación de cliente y de admin usa el UID de la reserva, nunca el del actor", async () => {
+test("cancelación propia no avisa; cancelación de admin avisa al UID de la reserva", async () => {
   for (const token of [tokens.cliente, tokens.admin]) {
     enviados.length = 0;
     seed("reservas", reservaId, { ...store.get("reservas").get(reservaId), estado: "confirmada" });
     assert.equal((await cancelar(token)).status, 200);
-    assert.equal(enviados.length, 3);
+    assert.equal(enviados.length, token === tokens.cliente ? 0 : 3);
     assert.ok(enviados.every(msg => msg.data.estado === "cancelada" && msg.to !== "fcm-ajeno"));
     assert.equal((await cancelar(token)).status, 409);
-    assert.equal(enviados.length, 3);
+    assert.equal(enviados.length, token === tokens.cliente ? 0 : 3);
   }
 });
 
@@ -99,7 +99,7 @@ test("fallo de transacción no avisa; fallo de push no convierte la reserva conf
   test.mock.method(push, "enviarPush", async () => { throw new Error("proveedor no disponible"); });
   assert.equal((await cambiar("confirmada")).status, 200);
   assert.equal(store.get("reservas").get(reservaId).estado, "confirmada");
-  assert.equal((await cancelar()).status, 200);
+  assert.equal((await cancelar(tokens.admin)).status, 200);
   assert.equal(store.get("reservas").get(reservaId).estado, "cancelada");
 });
 
@@ -166,7 +166,7 @@ test("reintento del callback de Firestore no repite los avisos de confirmación 
   });
   assert.equal((await cambiar("confirmada")).status, 200);
   assert.equal(enviados.length, 3);
-  assert.equal((await cancelar()).status, 200);
+  assert.equal((await cancelar(tokens.admin)).status, 200);
   assert.equal(enviados.length, 6);
 });
 
