@@ -127,3 +127,45 @@ describe("PUT y DELETE /v1/ofertas/:id", () => {
     assert.equal((await request(app).delete(`/v1/ofertas/${a.id}`).set(auth(tokens.empresa))).status, 404);
   });
 });
+
+describe("una sola activa ante peticiones simultáneas (P1 de la revisión de Codex)", () => {
+  const publicasR1 = async () => (await request(app).get("/v1/ofertas?restauranteId=r1")).body.data;
+  const activar = (id) => request(app).put(`/v1/ofertas/${id}`).set(auth(tokens.empresa)).send(sinRestaurante(oferta()));
+
+  test("dos altas activas a la vez: una 201, otra 409 y queda una sola pública", async () => {
+    const res = await Promise.all([crear(oferta({ titulo: "A" })), crear(oferta({ titulo: "B" }))]);
+    assert.deepEqual(res.map((r) => r.status).sort(), [201, 409]);
+    assert.equal((await publicasR1()).length, 1);
+    assert.equal(store.get("ofertas_activas").get("r1").ofertaId, res.find((r) => r.status === 201).body.id);
+  });
+
+  test("activar a la vez dos inactivas: una 200, otra 409 y queda una sola pública", async () => {
+    const a = (await crear(oferta({ titulo: "A", activa: false }))).body;
+    const b = (await crear(oferta({ titulo: "B", activa: false }))).body;
+    const res = await Promise.all([activar(a.id), activar(b.id)]);
+    assert.deepEqual(res.map((r) => r.status).sort(), [200, 409]);
+    assert.equal((await publicasR1()).length, 1);
+  });
+
+  test("desactivar o borrar la activa libera el restaurante para otra", async () => {
+    const a = (await crear(oferta({ titulo: "A" }))).body;
+    const b = (await crear(oferta({ titulo: "B", activa: false }))).body;
+    await request(app).put(`/v1/ofertas/${a.id}`).set(auth(tokens.empresa)).send({ ...sinRestaurante(oferta()), activa: false });
+    assert.equal(store.get("ofertas_activas").has("r1"), false);
+    assert.equal((await activar(b.id)).status, 200);
+    assert.equal((await request(app).delete(`/v1/ofertas/${b.id}`).set(auth(tokens.empresa))).status, 204);
+    assert.equal(store.get("ofertas_activas").has("r1"), false);
+    assert.equal((await crear(oferta({ titulo: "C" }))).status, 201);
+  });
+
+  test("editar la oferta que ya es la activa no choca consigo misma", async () => {
+    const a = (await crear(oferta())).body;
+    assert.equal((await activar(a.id)).status, 200);
+    assert.equal((await activar(a.id)).status, 200);
+  });
+
+  test("un bloqueo que apunta a una oferta que ya no existe no impide activar otra", async () => {
+    seed("ofertas_activas", "r1", { ofertaId: "borrada" });
+    assert.equal((await crear(oferta())).status, 201);
+  });
+});

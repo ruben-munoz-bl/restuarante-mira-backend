@@ -30,20 +30,37 @@ async function publicas(restauranteId) {
   return (await delRestaurante(restauranteId)).filter((o) => vigente(o));
 }
 
-async function comprobarUnicaActiva(restauranteId, exceptoId = null) {
-  const activas = (await delRestaurante(restauranteId)).filter((o) => o.activa && o.id !== exceptoId);
-  if (activas.length) throw error(409, "CONFLICT", "Ya hay otra oferta activa en este restaurante");
-}
-
 function campos(d) {
   return { titulo: d.titulo, activa: d.activa, desde: d.desde ?? null, hasta: d.hasta ?? null, niveles: d.niveles };
 }
 
+/**
+ * «Una sola activa por restaurante» se garantiza con un documento de bloqueo
+ * `ofertas_activas/{restauranteId}` = { ofertaId }, leído y escrito en la misma
+ * transacción que la oferta. Firestore serializa las transacciones que tocan ese
+ * documento: de dos altas o activaciones simultáneas solo una se confirma.
+ */
+const bloqueo = (restauranteId) => db.collection("ofertas_activas").doc(String(restauranteId));
+
+/** Lanza 409 si el bloqueo apunta a otra oferta que sigue existiendo y activa. */
+async function exigirLibre(tx, restauranteId, exceptoId) {
+  const lock = await tx.get(bloqueo(restauranteId));
+  const ocupadaPor = lock.exists ? lock.data().ofertaId : null;
+  if (!ocupadaPor || ocupadaPor === exceptoId) return;
+  const otra = await tx.get(col().doc(ocupadaPor));
+  if (otra.exists && otra.data().activa) throw error(409, "CONFLICT", "Ya hay otra oferta activa en este restaurante");
+}
+
 async function crear(datos) {
-  if (datos.activa) await comprobarUnicaActiva(datos.restauranteId);
+  const restauranteId = String(datos.restauranteId);
+  const ref = col().doc();
   const ahora = new Date().toISOString();
-  const { id } = await col().add({ restauranteId: String(datos.restauranteId), ...campos(datos), creado: ahora, actualizado: ahora });
-  return obtener(id);
+  await db.runTransaction(async (tx) => {
+    if (datos.activa) await exigirLibre(tx, restauranteId, null);
+    tx.set(ref, { restauranteId, ...campos(datos), creado: ahora, actualizado: ahora });
+    if (datos.activa) tx.set(bloqueo(restauranteId), { ofertaId: ref.id });
+  });
+  return obtener(ref.id);
 }
 
 async function obtener(id) {
@@ -53,14 +70,30 @@ async function obtener(id) {
 }
 
 async function editar(id, datos) {
-  const actual = await obtener(id);
-  if (datos.activa) await comprobarUnicaActiva(actual.restauranteId, actual.id);
-  await col().doc(actual.id).update({ ...campos(datos), actualizado: new Date().toISOString() });
-  return obtener(actual.id);
+  const ref = col().doc(String(id));
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw error(404, "NOT_FOUND", "Oferta no encontrada");
+    const { restauranteId } = snap.data();
+    const lock = await tx.get(bloqueo(restauranteId));
+    const mia = lock.exists && lock.data().ofertaId === ref.id;
+    if (datos.activa && !mia) await exigirLibre(tx, restauranteId, ref.id);
+    tx.update(ref, { ...campos(datos), actualizado: new Date().toISOString() });
+    if (datos.activa && !mia) tx.set(bloqueo(restauranteId), { ofertaId: ref.id });
+    if (!datos.activa && mia) tx.delete(bloqueo(restauranteId));
+  });
+  return obtener(id);
 }
 
 async function borrar(id) {
-  await col().doc(String(id)).delete();
+  const ref = col().doc(String(id));
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const lock = await tx.get(bloqueo(snap.data().restauranteId));
+    tx.delete(ref);
+    if (lock.exists && lock.data().ofertaId === ref.id) tx.delete(bloqueo(snap.data().restauranteId));
+  });
 }
 
 module.exports = { publicas, delRestaurante, crear, obtener, editar, borrar };

@@ -3326,7 +3326,7 @@ Router: `src/modules/ofertas/routes.js`. Servicio: `service.js`. Reglas puras: `
 | `PUT /v1/ofertas/:id` | empresa dueña o admin + `rateLimit(60000, 30)` | `200 Oferta` (sustituye título, activa, vigencia y niveles; `restauranteId` no se acepta) | 400, 401, 403, 404, 409 |
 | `DELETE /v1/ofertas/:id` | empresa dueña o admin | `204` | 401, 403, 404 |
 
-El dueño se comprueba con `comprobarRestaurante` (uid/ownerUid del restaurante, `restaurantId(s)` del perfil o email del token). La consulta por restaurante es de igualdad simple y se ordena en memoria, así que no requiere índice compuesto. La comprobación de «una activa» se hace antes de escribir, sin transacción: dos altas simultáneas del mismo restaurante podrían dejar dos activas (muy improbable desde un único panel).
+El dueño se comprueba con `comprobarRestaurante` (uid/ownerUid del restaurante, `restaurantId(s)` del perfil o email del token). La consulta por restaurante es de igualdad simple y se ordena en memoria, así que no requiere índice compuesto. «Una activa» se garantiza con un documento de bloqueo `ofertas_activas/{restauranteId}` = `{ ofertaId }`, leído y escrito en la misma transacción que la oferta en crear, editar y borrar. Firestore serializa las transacciones que tocan ese documento, así que de dos altas o activaciones simultáneas una se confirma y la otra recibe 409. Desactivar o borrar la activa libera el bloqueo; un bloqueo que apunta a una oferta borrada o inactiva no impide activar otra.
 
 ```bash
 curl "$BASE/v1/ofertas?restauranteId=abc123"
