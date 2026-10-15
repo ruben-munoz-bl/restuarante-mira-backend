@@ -288,3 +288,60 @@ describe("GET /v1/ofertas/cerca (G05)", () => {
   });
 });
 
+
+describe("estadísticas de ofertas (contrato fase 3, para G07)", () => {
+  const hoy = () => logica.hoyMadrid();
+  const avisar = (id, nivel) => request(app).post(`/v1/ofertas/${id}/avisos`).send({ nivel });
+  const verStats = (q, token = tokens.empresa) => request(app).get(`/v1/ofertas/estadisticas?${q}`).set(auth(token));
+
+  test("los avisos suman por nivel en el contador del día, sin datos del usuario", async () => {
+    const a = (await crear(oferta())).body;
+    for (const nivel of [1000, 1000, 500, 20]) assert.equal((await avisar(a.id, nivel)).status, 204);
+    const doc = store.get("ofertas_stats").get(`r1_${hoy()}`);
+    assert.deepEqual(doc.avisos, { 1000: 2, 500: 1, 20: 1 });
+    assert.deepEqual(Object.keys(doc).sort(), ["avisos", "fecha", "restauranteId"]);
+    const res = await verStats(`restauranteId=r1&desde=${hoy()}&hasta=${hoy()}`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.data, [{ fecha: hoy(), avisos: { 1000: 2, 500: 1, 100: 0, 20: 1 }, visitas: 0, confirmadas: 0 }]);
+  });
+
+  test("aviso: 400 con un nivel que no existe, 404 si la oferta no existe o no está activa", async () => {
+    const a = (await crear(oferta())).body;
+    assert.equal((await avisar(a.id, 250)).status, 400);
+    assert.equal((await request(app).post(`/v1/ofertas/${a.id}/avisos`).send({ nivel: 20, uid: "x" })).status, 400, "strict");
+    assert.equal((await avisar("nope", 20)).status, 404);
+    const b = (await crear(oferta({ titulo: "Inactiva", activa: false }))).body;
+    assert.equal((await avisar(b.id, 20)).status, 404);
+  });
+
+  test("contarVisita suma visitas y confirmadas para el módulo de visitas", async () => {
+    await svc.contarVisita("r1", "visitas");
+    await svc.contarVisita("r1", "visitas");
+    await svc.contarVisita("r1", "confirmadas");
+    const fila = (await verStats(`restauranteId=r1&desde=${hoy()}&hasta=${hoy()}`)).body.data[0];
+    assert.equal(fila.visitas, 2);
+    assert.equal(fila.confirmadas, 1);
+    await assert.rejects(() => svc.contarVisita("r1", "otra"));
+  });
+
+  test("rango de fechas: filtra, ordena y limita a 92 días", async () => {
+    seed("ofertas_stats", "r1_2026-01-05", { restauranteId: "r1", fecha: "2026-01-05", visitas: 3 });
+    seed("ofertas_stats", "r1_2026-01-01", { restauranteId: "r1", fecha: "2026-01-01", avisos: { 100: 4 } });
+    seed("ofertas_stats", "r1_2026-03-01", { restauranteId: "r1", fecha: "2026-03-01", visitas: 9 });
+    seed("ofertas_stats", "r2_2026-01-02", { restauranteId: "r2", fecha: "2026-01-02", visitas: 7 });
+    const res = await verStats("restauranteId=r1&desde=2026-01-01&hasta=2026-01-31");
+    assert.deepEqual(res.body.data.map((d) => d.fecha), ["2026-01-01", "2026-01-05"]);
+    assert.equal(res.body.data[0].avisos[100], 4);
+    assert.equal((await verStats("restauranteId=r1&desde=2026-01-01&hasta=2026-04-03")).status, 400, "93 días contando ambos extremos");
+    assert.equal((await verStats("restauranteId=r1&desde=2026-01-01&hasta=2026-04-02")).status, 200, "92 días: el máximo");
+    assert.equal((await verStats("restauranteId=r1&desde=2026-02-01&hasta=2026-01-01")).status, 400);
+  });
+
+  test("permisos: solo la empresa dueña o un admin", async () => {
+    const q = `restauranteId=r1&desde=${hoy()}&hasta=${hoy()}`;
+    assert.equal((await request(app).get(`/v1/ofertas/estadisticas?${q}`)).status, 401);
+    assert.equal((await verStats(q, tokens.cliente)).status, 403);
+    assert.equal((await verStats(q, otraEmpresa)).status, 403);
+    assert.equal((await verStats(q, tokens.admin)).status, 200);
+  });
+});

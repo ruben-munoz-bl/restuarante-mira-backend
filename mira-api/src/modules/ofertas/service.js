@@ -2,8 +2,8 @@
  * Ofertas por distancia en Firestore (colección `ofertas`). Una sola activa por
  * restaurante; la oferta no guarda nada del usuario ni de su ubicación.
  */
-const { db } = require("../../middlewares/verifyFirebaseAuth");
-const { vigente, coordenadasDe, distanciaM, nivelAlcanzado, RADIO_MAX } = require("./logica");
+const { db, admin } = require("../../middlewares/verifyFirebaseAuth");
+const { vigente, coordenadasDe, distanciaM, nivelAlcanzado, RADIO_MAX, hoyMadrid, vistaEstadistica } = require("./logica");
 
 const col = () => db.collection("ofertas");
 
@@ -163,4 +163,36 @@ async function cerca(posicion) {
   return resultado.sort((a, b) => a.d - b.d).map(({ d, ...r }) => ({ ...r, distanciaM: Math.round(d) }));
 }
 
-module.exports = { publicas, delRestaurante, crear, obtener, editar, borrar, cerca, invalidarCache };
+/*
+ * Estadísticas: ofertas_stats/{restauranteId}_{AAAA-MM-DD} con contadores
+ * agregados (avisos por nivel, visitas, confirmadas). Nunca datos del usuario
+ * ni de ubicación. FieldValue.increment: sin leer antes ni transacción.
+ */
+const stats = (restauranteId, fecha) => db.collection("ofertas_stats").doc(`${restauranteId}_${fecha}`);
+
+function sumar(restauranteId, cambios) {
+  const fecha = hoyMadrid();
+  return stats(restauranteId, fecha).set({ restauranteId: String(restauranteId), fecha, ...cambios }, { merge: true });
+}
+
+/** La app avisa de que ha mostrado un nivel; solo cuenta ofertas activas y vigentes. */
+async function registrarAviso(ofertaId, nivel) {
+  const oferta = await obtener(ofertaId);
+  if (!vigente(oferta)) throw error(404, "NOT_FOUND", "La oferta no está activa");
+  await sumar(oferta.restauranteId, { avisos: { [nivel]: admin.firestore.FieldValue.increment(1) } });
+}
+
+/** Para el módulo de visitas (G08): campo "visitas" al crear y "confirmadas" al confirmar. */
+async function contarVisita(restauranteId, campo) {
+  if (!["visitas", "confirmadas"].includes(campo)) throw new Error(`Campo de estadística no válido: ${campo}`);
+  await sumar(restauranteId, { [campo]: admin.firestore.FieldValue.increment(1) });
+}
+
+async function estadisticas(restauranteId, desde, hasta) {
+  const snap = await db.collection("ofertas_stats").where("restauranteId", "==", String(restauranteId)).get();
+  // Filtro y orden en memoria: igualdad simple, sin índice compuesto.
+  return snap.docs.map((d) => d.data()).filter((d) => d.fecha >= desde && d.fecha <= hasta)
+    .sort((a, b) => a.fecha.localeCompare(b.fecha)).map(vistaEstadistica);
+}
+
+module.exports = { publicas, delRestaurante, crear, obtener, editar, borrar, cerca, invalidarCache, registrarAviso, contarVisita, estadisticas };
