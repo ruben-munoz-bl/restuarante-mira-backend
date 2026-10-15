@@ -345,6 +345,16 @@
   ],
   "fieldOverrides": [
     {
+      "collectionGroup": "dispositivos",
+      "fieldPath": "tokenHash",
+      "indexes": [
+        {
+          "order": "ASCENDING",
+          "queryScope": "COLLECTION_GROUP"
+        }
+      ]
+    },
+    {
       "collectionGroup": "logs",
       "fieldPath": "registros",
       "indexes": []

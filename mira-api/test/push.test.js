@@ -16,8 +16,27 @@ const collection = db.collection.bind(db);
 test.beforeEach(() => {
   seedBase();
   clearRateLimits();
+  db.collectionGroup = nombre => ({
+    where: (campo, op, valor) => ({ get: async () => {
+      assert.equal(nombre, "dispositivos");
+      assert.equal(op, "==");
+      const docs = [];
+      for (const [ruta, documentos] of store) {
+        if (ruta.split("/").at(-1) !== nombre) continue;
+        for (const [id, data] of documentos) {
+          if (data[campo] !== valor) continue;
+          const ref = collection(ruta).doc(id);
+          ref.path = `${ruta}/${id}`;
+          docs.push({ id, ref, data: () => ({ ...data }) });
+        }
+      }
+      return { docs, empty: docs.length === 0 };
+    } }),
+  });
   test.mock.method(db, "collection", name => {
     const col = collection(name);
+    const doc = col.doc.bind(col);
+    col.doc = id => Object.assign(doc(id), { path: `${name}/${id}` });
     if (name !== "push_recibos") return col;
     const where = col.where.bind(col);
     col.where = (campo, op, valor) => op !== "<=" ? where(campo, op, valor) : {
@@ -30,7 +49,7 @@ test.beforeEach(() => {
     return col;
   });
 });
-test.afterEach(() => { test.mock.restoreAll(); delete admin.messaging; });
+test.afterEach(() => { test.mock.restoreAll(); delete admin.messaging; delete db.collectionGroup; });
 function post(body = registro, token = tokens.cliente) {
   return request(app).post("/v1/push/tokens").set("Authorization", `Bearer ${token}`).send(body);
 }
@@ -127,4 +146,58 @@ test("fallo al consultar recibos conserva los registros para reintentar", async 
   await assert.rejects(service.revisarRecibos(), /red/);
   assert.equal(dispositivos("u-cli").size, 1);
   assert.equal(store.get("push_recibos").size, 1);
+});
+
+
+test("el token reasignado de A a B nunca se usa al notificar a A (Expo y web)", async () => {
+  const expo = test.mock.method(Expo.prototype, "sendPushNotificationsAsync", async () => [{ status: "ok", id: "reasignado" }]);
+  const enviadosWeb = [];
+  admin.messaging = () => ({ send: async msg => { enviadosWeb.push(msg); return "ok"; } });
+  for (const tipo of ["expo", "web"]) {
+    const datos = { ...registro, tipo, token: tipo === "expo" ? registro.token : "fcm-compartido" };
+    const a = await post(datos);
+    assert.equal(a.status, 200);
+    assert.equal(dispositivos("u-cli").get(a.body.id).tokenHash, a.body.id);
+    const b = await post(datos, tokens.cliente2);
+    assert.equal(b.status, 200);
+    assert.equal(b.body.id, a.body.id);
+    assert.equal(dispositivos("u-cli").has(a.body.id), false);
+    assert.equal(dispositivos("u-cli2").get(b.body.id).tokenHash, b.body.id);
+  }
+  assert.deepEqual(await service.enviarPush("u-cli", aviso), { enviados: 0, fallidos: 0, eliminados: 0 });
+  assert.equal(expo.mock.calls.length, 0);
+  assert.equal(enviadosWeb.length, 0);
+  assert.deepEqual(await service.enviarPush("u-cli2", aviso), { enviados: 2, fallidos: 0, eliminados: 0 });
+  assert.equal(expo.mock.calls.length, 1);
+  assert.equal(enviadosWeb[0].token, "fcm-compartido");
+});
+
+test("el cupo de diez elimina el más antiguo y renovar uno lo conserva", async () => {
+  const ids = [];
+  for (let n = 0; n < 10; n++) {
+    const { id } = await service.registrarToken("u-cli", { ...registro, token: `ExpoPushToken[dispositivo-${n}]` });
+    ids.push(id);
+    const data = dispositivos("u-cli").get(id);
+    dispositivos("u-cli").set(id, { ...data, actualizado: new Date(2000, 0, n + 1).toISOString() });
+  }
+  assert.equal(dispositivos("u-cli").size, 10);
+  await service.registrarToken("u-cli2", registro);
+  // Renovar el más antiguo no expulsa ninguno y lo convierte en el más reciente.
+  await service.registrarToken("u-cli", { ...registro, token: "ExpoPushToken[dispositivo-0]", idioma: "ca" });
+  assert.equal(dispositivos("u-cli").size, 10);
+  const nuevo = await service.registrarToken("u-cli", { ...registro, token: "ExpoPushToken[nuevo]" });
+  assert.equal(dispositivos("u-cli").size, 10);
+  assert.ok(dispositivos("u-cli").has(nuevo.id));
+  assert.ok(dispositivos("u-cli").has(ids[0]));
+  assert.equal(dispositivos("u-cli").get(ids[0]).idioma, "ca");
+  assert.equal(dispositivos("u-cli").has(ids[1]), false);
+  assert.equal(dispositivos("u-cli2").size, 1);
+});
+
+test("si falla la búsqueda global no confirma el registro ni deja duplicados", async () => {
+  const { id } = await service.registrarToken("u-cli", registro);
+  db.collectionGroup = () => ({ where: () => ({ get: async () => { throw new Error("índice no disponible"); } }) });
+  await assert.rejects(service.registrarToken("u-cli2", registro), /índice no disponible/);
+  assert.ok(dispositivos("u-cli").has(id));
+  assert.equal(dispositivos("u-cli2")?.size || 0, 0);
 });

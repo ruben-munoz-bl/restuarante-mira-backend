@@ -4,12 +4,15 @@ const { z } = require("zod");
 const { db, admin } = require("../../middlewares/verifyFirebaseAuth");
 const { logger } = require("../../middlewares/errorHandler");
 
-const expo = new Expo({ accessToken: process.env.EXPO_ACCESS_TOKEN });
+const { env } = require("../../config/env");
+
+const expo = new Expo({ accessToken: env.EXPO_ACCESS_TOKEN || undefined });
 const notificacionSchema = z.object({
   titulo: z.string().min(1).max(200),
   cuerpo: z.string().min(1).max(2000),
   data: z.record(z.string()).default({}),
 }).strict();
+const MAX_DISPOSITIVOS = 10;
 const ESPERA_RECIBO = 15 * 60 * 1000;
 const CADUCIDAD_RECIBO = 24 * 60 * 60 * 1000;
 
@@ -19,7 +22,27 @@ function dispositivos(uid) {
 
 async function registrarToken(uid, { token, tipo, plataforma, idioma }) {
   const id = createHash("sha256").update(`${tipo}:${token}`).digest("hex");
-  await dispositivos(uid).doc(id).set({ token, tipo, plataforma, idioma, actualizado: new Date().toISOString() });
+  const propios = dispositivos(uid);
+  const ref = propios.doc(id);
+  const coincidencias = db.collectionGroup("dispositivos").where("tokenHash", "==", id);
+  // Reasignación y cupo atómicos: nunca confirmar el alta dejando copias en otra cuenta.
+  await db.runTransaction(async tx => {
+    const anteriores = await tx.get(coincidencias);
+    const actuales = await tx.get(propios);
+    for (const doc of anteriores.docs) {
+      if (doc.ref.path !== ref.path) tx.delete(doc.ref);
+    }
+    // Excluir el que se registra de nuevo: se conserva como el más reciente,
+    // incluso cuando varias altas comparten el mismo milisegundo.
+    const otros = actuales.docs.filter(doc => doc.id !== id).sort((a, b) => {
+      const orden = (a.data().actualizado || "").localeCompare(b.data().actualizado || "");
+      return orden || a.id.localeCompare(b.id);
+    });
+    for (const doc of otros.slice(0, Math.max(0, otros.length - MAX_DISPOSITIVOS + 1))) {
+      tx.delete(propios.doc(doc.id));
+    }
+    tx.set(ref, { token, tokenHash: id, tipo, plataforma, idioma, actualizado: new Date().toISOString() });
+  });
   return { id, tipo, plataforma, idioma };
 }
 
