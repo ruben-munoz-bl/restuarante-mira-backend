@@ -3749,10 +3749,10 @@ Las preferencias se guardan en `usuarios/{uid}.preferenciasPush` y afectan al pu
 Autenticación: Firebase Bearer, cualquier rol. UID exclusivamente del token, sin parámetro para consultar otra cuenta. Respuesta 200, mapa completo:
 
 ```json
-{ "reservas": true, "mensajes": true, "promociones": true }
+{ "reservas": true, "mensajes": true, "promociones": false }
 ```
 
-Si no existe el perfil, el campo o una clave, el valor efectivo es `true` para conservar el comportamiento anterior. Solo un `false` explícito desactiva la categoría; GET no crea ni modifica documentos.
+Si no existe el perfil, el campo o una clave, reservas y mensajes tienen valor efectivo `true`, y promociones `false`. Promociones solo se activa con un `true` booleano explícito (`preferenciasPush.promociones === true`); valores como `"true"` o `1` no la habilitan. En reservas/mensajes solo un `false` explícito desactiva. GET no crea ni modifica documentos.
 
 #### PUT /v1/push/preferencias
 
@@ -3774,4 +3774,4 @@ Antes de consultar dispositivos, el servicio lee las preferencias del UID, sin c
 
 Una actualización confirmada afecta al siguiente envío. No se pueden retirar avisos que ya estuvieran en curso o aceptados por el proveedor. No hacen falta índices o reglas nuevos; no se modifica el endpoint genérico de perfil ni el frontend.
 
-Para PC 2: leer el mapa al abrir los ajustes, enviar únicamente el interruptor modificado y actualizar la UI con el mapa completo devuelto. Si la petición falla, no presentar el cambio como guardado. Prueba conjunta: desactivar promociones, comprobar que un emisor tipado no envía y que reservas/mensajes sí; reactivar y comprobar el siguiente envío. `scripts/probar-push.js` usa el tipo `reservas` y respeta su interruptor.
+Para PC 2: promociones empieza apagado hasta leer un `true` del servidor; nunca guardar `true` automáticamente al inicializar la pantalla. Enviar `{ promociones: true }` solo tras la activación explícita del usuario. Leer el mapa al abrir los ajustes, enviar únicamente el interruptor modificado y actualizar la UI con el mapa completo devuelto. Si la petición falla, no presentar el cambio como guardado. Prueba conjunta: desactivar promociones, comprobar que un emisor tipado no envía y que reservas/mensajes sí; reactivar y comprobar el siguiente envío. `scripts/probar-push.js` usa el tipo `reservas` y respeta su interruptor.

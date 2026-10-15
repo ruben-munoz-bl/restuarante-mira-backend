@@ -8,9 +8,13 @@ const cambioPreferenciasSchema = z.object({
   promociones: z.boolean().optional(),
 }).strict().refine(datos => Object.keys(datos).length > 0, { message: "Indica al menos una preferencia" });
 
-// Compatibilidad con perfiles anteriores: solo false explícito desactiva.
+// Reservas/mensajes mantienen su valor previo; promociones exige true explícito.
 function normalizarPreferencias(datos) {
-  return Object.fromEntries(tipoPushSchema.options.map(tipo => [tipo, datos?.[tipo] !== false]));
+  return {
+    reservas: datos?.reservas !== false,
+    mensajes: datos?.mensajes !== false,
+    promociones: datos?.promociones === true,
+  };
 }
 
 async function leerPreferencias(uid) {

@@ -10,7 +10,7 @@ const { enviarMensaje } = require("../src/modules/mensajes/notificar");
 const { clearRateLimits } = require("../src/middlewares/rateLimit");
 
 const ruta = "/v1/push/preferencias";
-const porDefecto = { reservas: true, mensajes: true, promociones: true };
+const porDefecto = { reservas: true, mensajes: true, promociones: false };
 const auth = token => ({ Authorization: `Bearer ${token}` });
 const leer = (token = tokens.cliente) => request(app).get(ruta).set(auth(token));
 const guardar = (body, token = tokens.cliente) => request(app).put(ruta).set(auth(token)).send(body);
@@ -140,6 +140,7 @@ test("reactivar se aplica al siguiente envío, sin borrar tokens ni silenciar ot
   await guardar({ promociones: false });
   assert.deepEqual(await push.enviarPush("u-cli", aviso("promociones")), cero);
   seed("usuarios/u-cli2/dispositivos", "otro", { tipo: "web", token: "fcm-otro", idioma: "es" });
+  await guardar({ promociones: true }, tokens.cliente2);
   assert.equal((await push.enviarPush("u-cli2", aviso("promociones"))).enviados, 1);
   await guardar({ promociones: true });
   assert.equal((await push.enviarPush("u-cli", aviso("promociones"))).enviados, 2);
@@ -167,4 +168,23 @@ test("fallo al leer preferencias no envía y el buzón conserva los mensajes", a
   const id = await enviarMensaje("u-cli", { titulo: "Asunto", cuerpo: "Texto" });
   assert.ok(store.get("mensajes").has(id));
   assert.equal(enviados.length, 0);
+});
+
+
+test("promociones exige true explícito en perfiles ausentes, antiguos o con valores no booleanos", async () => {
+  const perfil = { ...store.get("usuarios").get("u-cli") };
+  store.get("usuarios").delete("u-cli");
+  assert.deepEqual((await leer()).body, porDefecto);
+  assert.deepEqual(await push.enviarPush("u-cli", aviso("promociones")), cero);
+  for (const preferenciasPush of [undefined, {}, { promociones: false }, { promociones: null }, { promociones: "true" }, { promociones: 1 }, { promociones: {} }]) {
+    seed("usuarios", "u-cli", preferenciasPush === undefined ? perfil : { ...perfil, preferenciasPush });
+    assert.deepEqual((await leer()).body, porDefecto);
+    assert.deepEqual(await push.enviarPush("u-cli", aviso("promociones")), cero);
+  }
+  assert.equal(enviados.length, 0);
+  assert.equal((await push.enviarPush("u-cli", aviso("reservas"))).enviados, 2);
+  assert.equal((await push.enviarPush("u-cli", aviso("mensajes"))).enviados, 2);
+  await guardar({ promociones: true });
+  assert.equal((await leer()).body.promociones, true);
+  assert.equal((await push.enviarPush("u-cli", aviso("promociones"))).enviados, 2);
 });
