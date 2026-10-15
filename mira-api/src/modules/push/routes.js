@@ -5,6 +5,7 @@ const { verifyFirebaseAuth } = require("../../middlewares/verifyFirebaseAuth");
 const { validate } = require("../../middlewares/validate");
 const { asyncHandler } = require("../../middlewares/errorHandler");
 const service = require("./service");
+const { cambioPreferenciasSchema, leerPreferencias, guardarPreferencias } = require("./preferencias");
 
 const router = Router();
 const tokenSchema = z.object({
@@ -15,6 +16,14 @@ const tokenSchema = z.object({
 }).strict().refine(v => v.tipo !== "expo" || Expo.isExpoPushToken(v.token), {
   path: ["token"], message: "Token Expo inválido",
 });
+
+router.get("/preferencias", verifyFirebaseAuth, asyncHandler(async (req, res) => {
+  res.json(await leerPreferencias(req.user.uid));
+}));
+
+router.put("/preferencias", verifyFirebaseAuth, validate(cambioPreferenciasSchema), asyncHandler(async (req, res) => {
+  res.json(await guardarPreferencias(req.user.uid, req.body));
+}));
 
 router.post("/tokens", verifyFirebaseAuth, validate(tokenSchema), asyncHandler(async (req, res) => {
   res.json(await service.registrarToken(req.user.uid, req.body));

@@ -3,6 +3,7 @@ const { Expo } = require("expo-server-sdk");
 const { z } = require("zod");
 const { db, admin } = require("../../middlewares/verifyFirebaseAuth");
 const { logger } = require("../../middlewares/errorHandler");
+const { tipoPushSchema, leerPreferencias } = require("./preferencias");
 
 const { env } = require("../../config/env");
 
@@ -12,6 +13,7 @@ const textoSchema = z.object({
   cuerpo: z.string().min(1).max(2000),
 }).strict();
 const notificacionSchema = textoSchema.extend({
+  tipo: tipoPushSchema,
   data: z.record(z.string()).default({}),
   textos: z.object({
     es: textoSchema.optional(), ca: textoSchema.optional(), en: textoSchema.optional(),
@@ -58,9 +60,11 @@ async function borrarToken(uid, id) {
 // Aceptado por el proveedor no significa que el dispositivo lo haya mostrado.
 // Los errores se aíslan por dispositivo y nunca se registran tokens ni mensajes.
 async function enviarPush(uid, notificacion) {
-  const { titulo, cuerpo, data, textos } = notificacionSchema.parse(notificacion);
-  const snapshot = await dispositivos(uid).get();
+  const { tipo, titulo, cuerpo, data, textos } = notificacionSchema.parse(notificacion);
   const resultado = { enviados: 0, fallidos: 0, eliminados: 0 };
+  const preferencias = await leerPreferencias(uid);
+  if (!preferencias[tipo]) return resultado;
+  const snapshot = await dispositivos(uid).get();
   for (const doc of snapshot.docs) {
     const dispositivo = doc.data();
     const texto = textos?.[dispositivo.idioma] || { titulo, cuerpo };
