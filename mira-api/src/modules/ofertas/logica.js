@@ -57,4 +57,34 @@ function vigente(oferta, hoy = hoyMadrid()) {
   return Boolean(oferta.activa) && (!oferta.desde || oferta.desde <= hoy) && (!oferta.hasta || oferta.hasta >= hoy);
 }
 
-module.exports = { DISTANCIAS, erroresNiveles, crearSchema, editarSchema, hoyMadrid, vigente };
+/** Radio máximo de «ofertas cerca de mí»: el primer nivel. */
+const RADIO_MAX = DISTANCIAS[0];
+
+const cercaSchema = z.object({
+  lat: z.coerce.number().min(-90).max(90),
+  lng: z.coerce.number().min(-180).max(180),
+}).strict();
+
+/** Coordenadas de un restaurante ({ latitud, longitud } en Firestore) o null. */
+function coordenadasDe(restaurante) {
+  const lat = Number(restaurante?.coordenadas?.latitud);
+  const lng = Number(restaurante?.coordenadas?.longitud);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { lat, lng };
+}
+
+/** Distancia en metros entre dos puntos (haversine, radio medio de la Tierra). */
+function distanciaM(a, b) {
+  const rad = (g) => (g * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(h));
+}
+
+/** El nivel más cercano alcanzado (menor distancia con d <= distancia) o null si está fuera de 1 km. */
+function nivelAlcanzado(niveles, d) {
+  return [...niveles].sort((x, y) => x.distancia - y.distancia).find((n) => d <= n.distancia) || null;
+}
+
+module.exports = { DISTANCIAS, RADIO_MAX, erroresNiveles, crearSchema, editarSchema, cercaSchema, hoyMadrid, vigente, coordenadasDe, distanciaM, nivelAlcanzado };

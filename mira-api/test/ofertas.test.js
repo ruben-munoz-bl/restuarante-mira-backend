@@ -10,9 +10,11 @@ const { clearRateLimits } = require("../src/middlewares/rateLimit");
 
 let app;
 let logica;
+let svc;
 before(() => {
   app = require("../src/app");
   logica = require("../src/modules/ofertas/logica");
+  svc = require("../src/modules/ofertas/service");
 });
 
 const auth = (t) => ({ Authorization: `Bearer ${t}` });
@@ -25,6 +27,7 @@ const sinRestaurante = ({ restauranteId, ...resto }) => resto;
 beforeEach(() => {
   seedBase();
   clearRateLimits();
+  svc.invalidarCache();
   seed("usuarios", "u-emp2", { uid: "u-emp2", tipo: "empresa", email: "emp2@test.local", nombre: "Otra empresa" });
   // r1 es de u-emp; r2 de u-emp2.
   seed("restaurants", "r1", { ...store.get("restaurants").get("r1"), ownerUid: "u-emp" });
@@ -169,3 +172,119 @@ describe("una sola activa ante peticiones simultáneas (P1 de la revisión de Co
     assert.equal((await crear(oferta())).status, 201);
   });
 });
+
+describe("GET /v1/ofertas/cerca (G05)", () => {
+  // r1 en Madrid (40.4, -3.7). 1 grado de latitud ≈ 111 195 m.
+  const R1 = { lat: 40.4, lng: -3.7 };
+  const alNorte = (m) => ({ lat: R1.lat + m / 111195, lng: R1.lng });
+  const cerca = (p) => request(app).get(`/v1/ofertas/cerca?lat=${p.lat}&lng=${p.lng}`);
+
+  test("haversine y nivel alcanzado en cada franja", () => {
+    assert.ok(Math.abs(logica.distanciaM(R1, alNorte(900)) - 900) < 2);
+    const n = niveles();
+    assert.equal(logica.nivelAlcanzado(n, 900).distancia, 1000);
+    assert.equal(logica.nivelAlcanzado(n, 400).distancia, 500);
+    assert.equal(logica.nivelAlcanzado(n, 50).distancia, 100);
+    assert.equal(logica.nivelAlcanzado(n, 15).distancia, 20);
+    assert.equal(logica.nivelAlcanzado(n, 1001), null);
+  });
+
+  test("a 900, 400, 50 y 10 m devuelve el nivel correcto; a 1500 m no aparece", async () => {
+    await crear(oferta());
+    for (const [m, nivel] of [[900, 1000], [400, 500], [50, 100], [10, 20]]) {
+      const res = await cerca(alNorte(m));
+      assert.equal(res.status, 200);
+      assert.equal(res.body.data.length, 1, `a ${m} m`);
+      assert.equal(res.body.data[0].nivel.distancia, nivel, `a ${m} m`);
+      assert.ok(Math.abs(res.body.data[0].distanciaM - m) <= 2);
+      assert.equal(res.body.data[0].restaurante.id, "r1");
+      assert.deepEqual(res.body.data[0].restaurante.coordenadas, R1);
+    }
+    assert.deepEqual((await cerca(alNorte(1500))).body.data, []);
+  });
+
+  test("ordena por distancia y omite inactivas, fuera de vigencia y restaurantes sin coordenadas", async () => {
+    seed("restaurants", "r2", { ...store.get("restaurants").get("r2"), ownerUid: "u-emp2", coordenadas: { latitud: R1.lat + 300 / 111195, longitud: R1.lng } });
+    await crear(oferta());
+    await crear(oferta({ restauranteId: "r2" }), otraEmpresa);
+    const res = await cerca(alNorte(250));
+    assert.deepEqual(res.body.data.map((x) => x.restaurante.id), ["r2", "r1"]);
+    await crear(oferta({ restauranteId: "r3" }), tokens.admin); // r3 sin coordenadas
+    const id2 = res.body.data[0].oferta.id;
+    await request(app).put(`/v1/ofertas/${id2}`).set(auth(otraEmpresa)).send({ ...sinRestaurante(oferta()), activa: false });
+    assert.deepEqual((await cerca(alNorte(250))).body.data.map((x) => x.restaurante.id), ["r1"]);
+  });
+
+  test("una oferta activa fuera de su vigencia no aparece", async () => {
+    await crear(oferta({ desde: "2020-01-01", hasta: "2020-12-31" }));
+    assert.deepEqual((await cerca(alNorte(10))).body.data, []);
+  });
+
+  test("400 con lat/lng ausentes o fuera de rango", async () => {
+    assert.equal((await request(app).get("/v1/ofertas/cerca")).status, 400);
+    assert.equal((await request(app).get("/v1/ofertas/cerca?lat=91&lng=0")).status, 400);
+    assert.equal((await request(app).get("/v1/ofertas/cerca?lat=abc&lng=0")).status, 400);
+  });
+
+  test("crear o borrar invalida la caché y la posición no se guarda en Firestore", async () => {
+    assert.deepEqual((await cerca(alNorte(10))).body.data, []);
+    const a = (await crear(oferta())).body;
+    assert.equal((await cerca(alNorte(10))).body.data.length, 1, "la caché no esconde la oferta nueva");
+    await request(app).delete(`/v1/ofertas/${a.id}`).set(auth(tokens.empresa));
+    assert.deepEqual((await cerca(alNorte(10))).body.data, []);
+    const colecciones = [...store.keys()];
+    assert.ok(!colecciones.some((c) => /posici|ubicac|location|cerca/i.test(c)), colecciones.join(","));
+  });
+
+  test("bordes: la distancia real decide radio y nivel (±0,4 m de cada umbral)", async () => {
+    await crear(oferta());
+    for (const umbral of [20, 100, 500]) {
+      const dentro = (await cerca(alNorte(umbral - 0.4))).body.data[0];
+      const fuera = (await cerca(alNorte(umbral + 0.4))).body.data[0];
+      assert.equal(dentro.nivel.distancia, umbral, `${umbral - 0.4} m`);
+      assert.ok(fuera.nivel.distancia > umbral, `${umbral + 0.4} m no adelanta el nivel`);
+    }
+    assert.equal((await cerca(alNorte(999.6))).body.data.length, 1);
+    assert.deepEqual((await cerca(alNorte(1000.4))).body.data, [], "1000,4 m queda fuera aunque redondee a 1000");
+  });
+
+  test("una carga empezada antes de desactivar no vuelve a meter la oferta en la caché", async () => {
+    const { db } = require("../src/middlewares/verifyFirebaseAuth");
+    const a = (await crear(oferta())).body;
+    let soltar;
+    const barrera = new Promise((r) => { soltar = r; });
+    const original = db.collection;
+    db.collection = (nombre) => {
+      const c = original.call(db, nombre);
+      if (nombre !== "restaurants") return c;
+      return { ...c, doc: (id) => { const ref = c.doc(id); return { ...ref, get: async () => { await barrera; return ref.get(); } }; } };
+    };
+    try {
+      const pendiente = svc.cerca(alNorte(10)); // carga en curso, parada en el restaurante
+      await new Promise((r) => setImmediate(r));
+      await svc.editar(a.id, { ...sinRestaurante(oferta()), activa: false }); // invalida
+      soltar();
+      assert.deepEqual(await pendiente, [], "la respuesta no usa la carga vieja");
+    } finally { db.collection = original; }
+    assert.deepEqual((await cerca(alNorte(10))).body.data, [], "y la caché tampoco");
+  });
+
+  test("dos peticiones simultáneas en frío comparten una sola carga", async () => {
+    const { db } = require("../src/middlewares/verifyFirebaseAuth");
+    await crear(oferta());
+    let lecturas = 0;
+    const original = db.collection;
+    db.collection = (nombre) => {
+      const c = original.call(db, nombre);
+      return nombre === "ofertas_activas" ? { ...c, get: async () => { lecturas++; return c.get(); } } : c;
+    };
+    try {
+      svc.invalidarCache();
+      const [x, y] = await Promise.all([svc.cerca(alNorte(10)), svc.cerca(alNorte(10))]);
+      assert.equal(x.length, 1);
+      assert.equal(y.length, 1);
+      assert.equal(lecturas, 1);
+    } finally { db.collection = original; }
+  });
+});
+

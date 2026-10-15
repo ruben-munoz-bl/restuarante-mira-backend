@@ -3,7 +3,7 @@
  * restaurante; la oferta no guarda nada del usuario ni de su ubicación.
  */
 const { db } = require("../../middlewares/verifyFirebaseAuth");
-const { vigente } = require("./logica");
+const { vigente, coordenadasDe, distanciaM, nivelAlcanzado, RADIO_MAX } = require("./logica");
 
 const col = () => db.collection("ofertas");
 
@@ -60,6 +60,7 @@ async function crear(datos) {
     tx.set(ref, { restauranteId, ...campos(datos), creado: ahora, actualizado: ahora });
     if (datos.activa) tx.set(bloqueo(restauranteId), { ofertaId: ref.id });
   });
+  invalidarCache();
   return obtener(ref.id);
 }
 
@@ -82,6 +83,7 @@ async function editar(id, datos) {
     if (datos.activa && !mia) tx.set(bloqueo(restauranteId), { ofertaId: ref.id });
     if (!datos.activa && mia) tx.delete(bloqueo(restauranteId));
   });
+  invalidarCache();
   return obtener(id);
 }
 
@@ -94,6 +96,71 @@ async function borrar(id) {
     tx.delete(ref);
     if (lock.exists && lock.data().ofertaId === ref.id) tx.delete(bloqueo(snap.data().restauranteId));
   });
+  invalidarCache();
 }
 
-module.exports = { publicas, delRestaurante, crear, obtener, editar, borrar };
+/*
+ * «Ofertas cerca de mí»: los candidatos son las ofertas apuntadas por
+ * ofertas_activas (como mucho una por restaurante), con las coordenadas de su
+ * restaurante. Se cachean 60 s porque esta ruta se llama muy a menudo; crear,
+ * editar o borrar en esta instancia invalidan la caché al momento.
+ */
+const CACHE_MS = 60 * 1000;
+// generacion sube en cada invalidación: una carga empezada antes no puede
+// publicar su resultado (traería ofertas ya desactivadas o borradas). Las
+// peticiones simultáneas comparten la misma carga en curso.
+let cache = { generacion: 0, hasta: 0, candidatos: null, cargando: null };
+
+function invalidarCache() {
+  cache = { generacion: cache.generacion + 1, hasta: 0, candidatos: null, cargando: null };
+}
+
+async function cargarCandidatos() {
+  const bloqueos = await db.collection("ofertas_activas").get();
+  const lista = await Promise.all(bloqueos.docs.map(async (lock) => {
+    const [ofertaSnap, restSnap] = await Promise.all([
+      col().doc(String(lock.data().ofertaId)).get(),
+      db.collection("restaurants").doc(lock.id).get(),
+    ]);
+    if (!ofertaSnap.exists || !restSnap.exists) return null;
+    const coordenadas = coordenadasDe(restSnap.data());
+    if (!coordenadas) return null;
+    return { restaurante: { id: restSnap.id, nombre: restSnap.data().nombre || "", coordenadas }, oferta: vista(ofertaSnap) };
+  }));
+  return lista.filter(Boolean);
+}
+
+async function candidatos() {
+  if (cache.candidatos && Date.now() < cache.hasta) return cache.candidatos;
+  if (!cache.cargando) {
+    const generacion = cache.generacion;
+    const cargando = cargarCandidatos();
+    cache.cargando = cargando;
+    cargando.then((lista) => {
+      if (cache.generacion === generacion) cache = { generacion, hasta: Date.now() + CACHE_MS, candidatos: lista, cargando: null };
+    }, () => {
+      if (cache.generacion === generacion && cache.cargando === cargando) cache.cargando = null;
+    });
+  }
+  const generacion = cache.generacion;
+  const lista = await cache.cargando;
+  // Si se invalidó mientras tanto, esta carga es vieja: volver a pedir.
+  return cache.generacion === generacion ? lista : candidatos();
+}
+
+/**
+ * La posición solo se usa para calcular; no se guarda ni se registra. Radio,
+ * nivel y orden usan la distancia real; solo se redondea el dato mostrado.
+ */
+async function cerca(posicion) {
+  const resultado = [];
+  for (const c of await candidatos()) {
+    if (!vigente(c.oferta)) continue;
+    const d = distanciaM(posicion, c.restaurante.coordenadas);
+    if (d > RADIO_MAX) continue;
+    resultado.push({ ...c, d, nivel: nivelAlcanzado(c.oferta.niveles, d) });
+  }
+  return resultado.sort((a, b) => a.d - b.d).map(({ d, ...r }) => ({ ...r, distanciaM: Math.round(d) }));
+}
+
+module.exports = { publicas, delRestaurante, crear, obtener, editar, borrar, cerca, invalidarCache };
