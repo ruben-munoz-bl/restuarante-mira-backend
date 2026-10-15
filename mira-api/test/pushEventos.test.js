@@ -150,7 +150,7 @@ test("fallo de push conserva el mensaje y su ID; fallo al guardar no avisa", asy
 });
 
 test("enviarPush conserva el formato original y usa texto base si falta traducción", async () => {
-  const base = { titulo: "Base", cuerpo: "Texto", textos: { ca: { titulo: "Català", cuerpo: "Text" } } };
+  const base = { tipo: "mensajes", titulo: "Base", cuerpo: "Texto", textos: { ca: { titulo: "Català", cuerpo: "Text" } } };
   await push.enviarPush("u-cli", base);
   assert.equal(enviados.find(msg => msg.to === "fcm-ca").title, "Català");
   assert.equal(enviados.find(msg => msg.to === "ExpoPushToken[en]").title, "Base");

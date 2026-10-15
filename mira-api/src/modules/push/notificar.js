@@ -24,7 +24,10 @@ const textos = {
 async function notificar(uid, evento, data) {
   if (!uid) return;
   try {
-    await push.enviarPush(uid, { ...textos[evento].es, textos: textos[evento], data });
+    await push.enviarPush(uid, {
+      tipo: evento === "mensaje" ? "mensajes" : "reservas",
+      ...textos[evento].es, textos: textos[evento], data,
+    });
   } catch {
     logger.warn({ evento }, "No se pudo completar el aviso push");
   }

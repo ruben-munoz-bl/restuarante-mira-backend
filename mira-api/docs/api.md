@@ -3705,7 +3705,7 @@ El cliente debe conservar el ID y borrar **antes de cerrar sesión**. Al cambiar
 
 ### Envío interno y prueba manual
 
-`require("./src/modules/push/service").enviarPush(uid, { titulo, cuerpo, data? })` envía a todos sus dispositivos: Expo Server SDK para `expo`, Firebase Admin Messaging para `web`. `data` es un mapa de cadenas; título 1–200 caracteres, cuerpo 1–2000. Devuelve `{ enviados, fallidos, eliminados }`: enviados significa aceptados por el proveedor, no confirmación de lectura o entrega. Un fallo de proveedor se aísla por dispositivo.
+`require("./src/modules/push/service").enviarPush(uid, { tipo, titulo, cuerpo, data? })` envía a todos sus dispositivos: Expo Server SDK para `expo`, Firebase Admin Messaging para `web`. `tipo` es obligatorio (`reservas`, `mensajes` o `promociones`, T10). `data` es un mapa de cadenas; título 1–200 caracteres, cuerpo 1–2000. Devuelve `{ enviados, fallidos, eliminados }`: enviados significa aceptados por el proveedor, no confirmación de lectura o entrega. Un fallo de proveedor se aísla por dispositivo.
 
 Se borran tokens Expo con `DeviceNotRegistered` en tickets y recibos, y FCM con `messaging/registration-token-not-registered` o `messaging/invalid-registration-token`; otros errores conservan el dispositivo. Los recibos se guardan en `push_recibos`, privados para la API. El cron cada 5 minutos revisa hasta 200 con al menos 15 minutos de antigüedad, reintenta los pendientes y los descarta a las 24 horas. En Render dormido, se retoma al despertar; no hay garantía de ejecución mientras duerme.
 
@@ -3727,7 +3727,7 @@ Referencias: [Expo Server SDK](https://github.com/expo/expo-server-sdk-node), [F
 
 ### T05 · Avisos de reservas y mensajes
 
-Se reutiliza `enviarPush` sin nuevos endpoints de envío. `push/notificar.js` contiene los textos es/ca/en; se seleccionan por `idioma` de cada dispositivo. El servicio admite opcionalmente `textos: { es?: { titulo, cuerpo }, ca?: { titulo, cuerpo }, en?: { titulo, cuerpo } }`; si falta la traducción usa el título/cuerpo base. Los campos base siguen siendo obligatorios y el formato anterior sigue funcionando. Las traducciones tienen los mismos límites que el texto base y no se mandan como datos al proveedor.
+Se reutiliza `enviarPush` sin nuevos endpoints de envío. `push/notificar.js` contiene los textos es/ca/en; se seleccionan por `idioma` de cada dispositivo. El servicio admite opcionalmente `textos: { es?: { titulo, cuerpo }, ca?: { titulo, cuerpo }, en?: { titulo, cuerpo } }`; si falta la traducción usa el título/cuerpo base. Los campos base siguen siendo obligatorios; T10 añade `tipo` obligatorio a las llamadas internas (todos los emisores de la API y el script se han adaptado). Las traducciones tienen los mismos límites que el texto base y no se mandan como datos al proveedor.
 
 | Evento persistido | Destinatario | Datos del push |
 |---|---|---|
@@ -3743,3 +3743,39 @@ Las reservas nuevas siguen en `pendiente`; el aviso de confirmación se genera c
 Los avisos son best-effort: se intenta el envío tras la escritura, sin revertir la reserva/mensaje ni devolver error HTTP si falla push. No hay cola persistida ni reintento del evento de negocio; una caída entre el commit y el envío puede perder el aviso. Los recibos de Expo de T04 siguen revisándose como antes. Sin cambios en reglas o índices en T05. Preferencias y otros eventos se abordan en T10 o tareas posteriores.
 
 Validación conjunta con PC 2: registrar un dispositivo T03/T07, crear una reserva con esa cuenta y confirmarla/cancelarla desde el panel de la empresa u otra cuenta admin; comprobar traducción según idioma del token y `data.ruta: "reservas"`. Enviar un mensaje desde admin o generar uno del buzón y comprobar `data.ruta: "mensajes"`. Repetir confirmación sin otro cambio no debe volver a avisar. La navegación al tocar depende de T03/T07; recepción real pendiente de disponer de esos dispositivos.
+
+### T10 · Preferencias de notificaciones
+
+Las preferencias se guardan en `usuarios/{uid}.preferenciasPush` y afectan al push de todos sus dispositivos. No modifican el buzón, las reservas ni la configuración Expo/FCM de los tokens.
+
+#### GET /v1/push/preferencias
+
+Autenticación: Firebase Bearer, cualquier rol. UID exclusivamente del token, sin parámetro para consultar otra cuenta. Respuesta 200, mapa completo:
+
+```json
+{ "reservas": true, "mensajes": true, "promociones": false }
+```
+
+Si no existe el perfil, el campo o una clave, reservas y mensajes tienen valor efectivo `true`, y promociones `false`. Promociones solo se activa con un `true` booleano explícito (`preferenciasPush.promociones === true`); valores como `"true"` o `1` no la habilitan. En reservas/mensajes solo un `false` explícito desactiva. GET no crea ni modifica documentos.
+
+#### PUT /v1/push/preferencias
+
+Misma autenticación. Actualización **parcial** con al menos una clave de `reservas`, `mensajes`, `promociones`, siempre booleanos; esquema estricto, sin claves adicionales, UID ni valores convertidos desde cadenas/números. Ejemplo:
+
+```json
+{ "promociones": false }
+```
+
+200: `{ "reservas": true, "mensajes": true, "promociones": false }` (mapa completo efectivo). Se combina en transacción con la configuración anterior para no perder otros interruptores ante peticiones simultáneas. Repetir el body es idempotente. `set` con merge conserva los otros campos del perfil; si este no existe, solo se crea `preferenciasPush`.
+
+Errores: 400 `VALIDATION_ERROR` con `details` para body vacío/inválido; ambos endpoints devuelven 401 `MISSING_TOKEN` o `INVALID_TOKEN` si procede. Un fallo de Firestore sigue el errorHandler habitual.
+
+#### Filtrado en enviarPush
+
+Cada llamada interna debe declarar `tipo: "reservas" | "mensajes" | "promociones"`; un tipo ausente/desconocido se rechaza antes de leer o enviar. No se infiere desde `data.ruta`. T05 etiqueta sus confirmaciones/cancelaciones como `reservas`, y sus mensajes como `mensajes`; los emisores de promociones futuros deben indicar `promociones`.
+
+Antes de consultar dispositivos, el servicio lee las preferencias del UID, sin caché. Si el tipo está desactivado, devuelve `{ enviados: 0, fallidos: 0, eliminados: 0 }` y no consulta dispositivos ni contacta a Expo/FCM. Los tokens se conservan; otras categorías y usuarios siguen funcionando. Si no puede leer las preferencias, falla sin enviar y el helper T05 mantiene la acción ya guardada.
+
+Una actualización confirmada afecta al siguiente envío. No se pueden retirar avisos que ya estuvieran en curso o aceptados por el proveedor. No hacen falta índices o reglas nuevos; no se modifica el endpoint genérico de perfil ni el frontend.
+
+Para PC 2: promociones empieza apagado hasta leer un `true` del servidor; nunca guardar `true` automáticamente al inicializar la pantalla. Enviar `{ promociones: true }` solo tras la activación explícita del usuario. Leer el mapa al abrir los ajustes, enviar únicamente el interruptor modificado y actualizar la UI con el mapa completo devuelto. Si la petición falla, no presentar el cambio como guardado. Prueba conjunta: desactivar promociones, comprobar que un emisor tipado no envía y que reservas/mensajes sí; reactivar y comprobar el siguiente envío. `scripts/probar-push.js` usa el tipo `reservas` y respeta su interruptor.

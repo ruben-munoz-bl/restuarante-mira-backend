@@ -8,7 +8,7 @@ const app = require("../src/app");
 const service = require("../src/modules/push/service");
 const { clearRateLimits } = require("../src/middlewares/rateLimit");
 const registro = { token: "ExponentPushToken[test-token]", tipo: "expo", plataforma: "android", idioma: "es" };
-const aviso = { titulo: "Reserva", cuerpo: "Confirmada", data: { ruta: "reservas" } };
+const aviso = { tipo: "reservas", titulo: "Reserva", cuerpo: "Confirmada", data: { ruta: "reservas" } };
 const dispositivos = uid => store.get(`usuarios/${uid}/dispositivos`);
 
 // El helper común no interpreta <=. Aplicarlo aquí sin cambiar otras suites.
