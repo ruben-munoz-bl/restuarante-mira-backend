@@ -3652,3 +3652,47 @@ Cambios de validación HTTP (400 `VALIDATION_ERROR` si no se cumplen):
 BUG-106 después del backend. Los cuerpos válidos de la web conservan contrato;
 clientes con entradas antes aceptadas pero inválidas deben ajustarlas. No se ha
 editado código de `modules/points` ni `modules/ai`.
+
+## Push · T04
+
+### POST /v1/push/tokens
+
+Requiere `Authorization: Bearer <Firebase ID token>` (cualquier rol). Body estricto:
+
+```json
+{ "token": "ExponentPushToken[ejemplo]", "tipo": "expo", "plataforma": "android", "idioma": "es" }
+```
+
+Todos los campos son obligatorios. `tipo`: `expo` o `web`; `plataforma`: `android`, `ios` o `web`; `idioma`: `es`, `ca` o `en`. Token sin espacios, 1–4096 caracteres; Expo se valida con `Expo.isExpoPushToken`. Para web se recibe un **token FCM**, no una `PushSubscription`.
+
+200: `{ "id": "<sha256 de tipo:token>", "tipo": "expo", "plataforma": "android", "idioma": "es" }`.
+Registro idempotente en `usuarios/{uid}/dispositivos/{id}`: repetir actualiza metadatos y `actualizado` (ISO). El documento incluye `tokenHash` igual al ID. Al registrar, una transacción consulta `collectionGroup("dispositivos").where("tokenHash", "==", id)` y elimina el mismo token de otras cuentas antes de confirmar la reasignación. Esto evita depender del DELETE de logout para dejar de recibir avisos de la cuenta anterior. Máximo **10 dispositivos por usuario**: se conserva el registro actual y se eliminan los más antiguos por `actualizado` (desempate por ID). El UID procede exclusivamente del Bearer. El token no se devuelve ni se registra en logs.
+
+Errores: 400 `VALIDATION_ERROR` con `details`; 401 `MISSING_TOKEN` o `INVALID_TOKEN` con `message`.
+
+### DELETE /v1/push/tokens/:id
+
+Misma autenticación. ID: 64 caracteres hexadecimales minúsculos. Solo elimina bajo el usuario autenticado, incluso para admins. 204 sin cuerpo también si no existe; 400 `VALIDATION_ERROR` para ID inválido; 401 como POST.
+El cliente debe conservar el ID y borrar **antes de cerrar sesión**. Al cambiar de cuenta, borrar el registro anterior y registrar en la nueva.
+
+### Envío interno y prueba manual
+
+`require("./src/modules/push/service").enviarPush(uid, { titulo, cuerpo, data? })` envía a todos sus dispositivos: Expo Server SDK para `expo`, Firebase Admin Messaging para `web`. `data` es un mapa de cadenas; título 1–200 caracteres, cuerpo 1–2000. Devuelve `{ enviados, fallidos, eliminados }`: enviados significa aceptados por el proveedor, no confirmación de lectura o entrega. Un fallo de proveedor se aísla por dispositivo.
+
+Se borran tokens Expo con `DeviceNotRegistered` en tickets y recibos, y FCM con `messaging/registration-token-not-registered` o `messaging/invalid-registration-token`; otros errores conservan el dispositivo. Los recibos se guardan en `push_recibos`, privados para la API. El cron cada 5 minutos revisa hasta 200 con al menos 15 minutos de antigüedad, reintenta los pendientes y los descarta a las 24 horas. En Render dormido, se retoma al despertar; no hay garantía de ejecución mientras duerme.
+
+Firestore: propietario puede leer sus dispositivos; solo Admin SDK escribe. `push_recibos` deniega todo acceso desde clientes. Desplegar `firestore.rules` junto con el módulo. Antes de habilitar el registro, desplegar `firestore.indexes.json` y esperar a que el índice de campo `dispositivos.tokenHash` con ámbito `COLLECTION_GROUP` esté listo; si la consulta falla, la transacción no confirma el alta. La versión inicial de T04 no se desplegó: los dispositivos se crean ya con `tokenHash`. Si se hubieran guardado dispositivos de prueba con la versión inicial, borrarlos antes de habilitar esta versión, pues una consulta por `tokenHash` no encuentra documentos que carecen del campo.
+
+Configuración fuera del repositorio: credencial Firebase con permisos FCM en Secret File de Render (`GOOGLE_APPLICATION_CREDENTIALS`); `EXPO_ACCESS_TOKEN` si Expo tiene habilitada seguridad push (opcional, declarada en `config/env.js` y `.env.example`). Android necesita FCM v1 configurado en EAS; la PWA necesita su token FCM y service worker (PC 2). Nunca subir claves FCM, VAPID ni cuentas de servicio.
+
+Prueba conjunta tras registrar un dispositivo real, en un entorno con las credenciales anteriores:
+
+```sh
+PUSH_TEST_UID=uid-del-usuario node scripts/probar-push.js
+```
+
+El script envía un único aviso de prueba al usuario indicado y muestra solo contadores. Comprobar la llegada en Android y en la PWA y los recibos posteriores. No se expone un endpoint público de envío.
+
+Referencias: [Expo Server SDK](https://github.com/expo/expo-server-sdk-node), [Firebase Admin Messaging](https://firebase.google.com/docs/cloud-messaging/send/admin-sdk).
+
+Índice de grupo de campo único: [documentación de Firestore](https://firebase.google.com/docs/firestore/query-data/index-overview).
