@@ -67,6 +67,7 @@ app.use("/v1/negocios", require("./modules/negocios/routes"));
 app.use("/v1/users", require("./modules/users/routes"));
 app.use("/v1/contactos", require("./modules/contactos/routes"));
 app.use("/v1/mensajes", require("./modules/mensajes/routes"));
+app.use("/v1/ofertas", require("./modules/ofertas/routes"));
 app.use("/v1/ai", require("./modules/ai/routes"));
 
 app.use((req, res) => {

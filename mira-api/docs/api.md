@@ -3312,6 +3312,30 @@ curl -X POST "$BASE/v1/ai/agent" \
 
 ---
 
+## 22 bis. Ofertas por distancia — `/v1/ofertas` (G02)
+
+Router: `src/modules/ofertas/routes.js`. Servicio: `service.js`. Reglas puras: `logica.js`. Colección: `ofertas` (solo vía API; reglas de Firestore cerradas). Contrato de la fase 1 en la bóveda del equipo, `Proyecto/Contratos API.md`.
+
+**Modelo:** `{ id, restauranteId, titulo (1-80), activa, desde, hasta (AAAA-MM-DD o null, incluidos), niveles, creado, actualizado }`. `niveles` son siempre 4, en el orden fijo de distancias **1000, 500, 100 y 20 m**, cada uno `{ distancia, texto (1-140), descuentoPct (entero 0-100) }`. El descuento no puede bajar al acercarse y el de 20 m (la llegada) tiene que ser mayor que el de 1000 m. `desde` ≤ `hasta`. Esquemas `strict`: un campo desconocido da 400. **Una sola oferta activa por restaurante** (409 `CONFLICT`). La oferta no guarda nada del usuario ni de su ubicación.
+
+| Método / Ruta | Auth | Respuesta | Errores |
+|---|---|---|---|
+| `GET /v1/ofertas?restauranteId=` | pública | `200 { data: [Oferta] }` solo la activa y vigente hoy (Europe/Madrid) | 400 |
+| `GET /v1/ofertas/mias?restauranteId=` | empresa dueña o admin | `200 { data: [Oferta] }` todas, de la más nueva a la más antigua | 400, 401, 403, 404 |
+| `POST /v1/ofertas` | empresa dueña o admin + `rateLimit(60000, 30)` | `201 Oferta` | 400, 401, 403, 404 (restaurante), 409 |
+| `PUT /v1/ofertas/:id` | empresa dueña o admin + `rateLimit(60000, 30)` | `200 Oferta` (sustituye título, activa, vigencia y niveles; `restauranteId` no se acepta) | 400, 401, 403, 404, 409 |
+| `DELETE /v1/ofertas/:id` | empresa dueña o admin | `204` | 401, 403, 404 |
+
+El dueño se comprueba con `comprobarRestaurante` (uid/ownerUid del restaurante, `restaurantId(s)` del perfil o email del token). La consulta por restaurante es de igualdad simple y se ordena en memoria, así que no requiere índice compuesto. La comprobación de «una activa» se hace antes de escribir, sin transacción: dos altas simultáneas del mismo restaurante podrían dejar dos activas (muy improbable desde un único panel).
+
+```bash
+curl "$BASE/v1/ofertas?restauranteId=abc123"
+curl -X POST "$BASE/v1/ofertas" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"restauranteId":"abc123","titulo":"Menú de mediodía","activa":true,"niveles":[{"distancia":1000,"texto":"Café gratis","descuentoPct":5},{"distancia":500,"texto":"10 %","descuentoPct":10},{"distancia":100,"texto":"15 %","descuentoPct":15},{"distancia":20,"texto":"20 % + postre","descuentoPct":20}]}'
+```
+
+---
+
 ## 23. Resumen de los 105 endpoints
 
 ### 23.1 Salud (no cuenta en los 105 de negocio)
