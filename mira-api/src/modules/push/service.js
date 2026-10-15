@@ -7,11 +7,16 @@ const { logger } = require("../../middlewares/errorHandler");
 const { env } = require("../../config/env");
 
 const expo = new Expo({ accessToken: env.EXPO_ACCESS_TOKEN || undefined });
-const notificacionSchema = z.object({
+const textoSchema = z.object({
   titulo: z.string().min(1).max(200),
   cuerpo: z.string().min(1).max(2000),
-  data: z.record(z.string()).default({}),
 }).strict();
+const notificacionSchema = textoSchema.extend({
+  data: z.record(z.string()).default({}),
+  textos: z.object({
+    es: textoSchema.optional(), ca: textoSchema.optional(), en: textoSchema.optional(),
+  }).strict().optional(),
+});
 const MAX_DISPOSITIVOS = 10;
 const ESPERA_RECIBO = 15 * 60 * 1000;
 const CADUCIDAD_RECIBO = 24 * 60 * 60 * 1000;
@@ -53,15 +58,16 @@ async function borrarToken(uid, id) {
 // Aceptado por el proveedor no significa que el dispositivo lo haya mostrado.
 // Los errores se aíslan por dispositivo y nunca se registran tokens ni mensajes.
 async function enviarPush(uid, notificacion) {
-  const { titulo, cuerpo, data } = notificacionSchema.parse(notificacion);
+  const { titulo, cuerpo, data, textos } = notificacionSchema.parse(notificacion);
   const snapshot = await dispositivos(uid).get();
   const resultado = { enviados: 0, fallidos: 0, eliminados: 0 };
   for (const doc of snapshot.docs) {
     const dispositivo = doc.data();
+    const texto = textos?.[dispositivo.idioma] || { titulo, cuerpo };
     try {
       if (dispositivo.tipo === "expo") {
         const [ticket] = await expo.sendPushNotificationsAsync([{
-          to: dispositivo.token, title: titulo, body: cuerpo, data, sound: "default",
+          to: dispositivo.token, title: texto.titulo, body: texto.cuerpo, data, sound: "default",
         }]);
         if (ticket.status === "error") {
           if (ticket.details?.error === "DeviceNotRegistered") {
@@ -78,7 +84,7 @@ async function enviarPush(uid, notificacion) {
         });
       } else if (dispositivo.tipo === "web") {
         await admin.messaging().send({
-          token: dispositivo.token, notification: { title: titulo, body: cuerpo }, data,
+          token: dispositivo.token, notification: { title: texto.titulo, body: texto.cuerpo }, data,
         });
       } else {
         resultado.fallidos++;

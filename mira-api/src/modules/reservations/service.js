@@ -1,4 +1,5 @@
 const { db } = require("../../middlewares/verifyFirebaseAuth");
+const { notificarReserva } = require("../push/notificar");
 const { logger } = require("../../middlewares/errorHandler");
 const restaurantsService = require("../restaurants/service");
 const { SLOTS, PUNTOS_RESERVA_BASE, MULTIPLICADOR_RACHA } = require("../../config/constants");
@@ -140,6 +141,7 @@ async function cancelarReserva(reservaId, uid, esAdmin = false) {
     tx.set(aforoRef, { ocupadas: Math.max(0, ocupadas - 1) }, { merge: true });
     return r;
   });
+  await notificarReserva(reserva.uid, reservaId, "cancelada");
   logger.info({ reservaId, uid }, "Reservation cancelled");
   // Hay una mesa libre: avisa al primero de la lista de espera (no bloquea la respuesta si falla).
   await espera().alLiberarseMesa(reserva.restaurantId, reserva.fecha, reserva.hora);
@@ -327,23 +329,29 @@ async function subirTicket(reservaId, { uid, totalPagado, asistio = true, fileNa
 
 async function actualizarEstado(reservaId, status, { precioBase } = {}) {
   const reservaRef = db.collection("reservas").doc(reservaId);
-  const snap = await reservaRef.get();
-  if (!snap.exists) throw errorDe(404, "NOT_FOUND", "Reserva no encontrada");
-  const reserva = { id: snap.id, ...snap.data() };
-  const estabaCompletada = reserva.estado === "completada";
-
-  const update = { estado: status, updatedAt: new Date() };
-  if (status === "completada") {
-    update.asistio = true;
-    if (precioBase) {
-      const restSnap2 = await db.collection("restaurants").doc(reserva.restaurantId || reserva.restauranteId || "").get().catch(() => null);
-      const pct2 = Number(restSnap2?.data?.()?.comisionPct) || Number(require("../../config/env").env.COMISION_PCT) || 8;
-      update.totalPagado = Number(precioBase);
-      update.importeComision = Math.round((Number(precioBase) * pct2) / 100 * 100) / 100;
+  // Leer el estado y actualizarlo en la misma transacción: dos peticiones con
+  // el mismo estado no deben disparar dos avisos. No enviar push en el callback,
+  // porque Firestore puede repetirlo al resolver un conflicto.
+  const reserva = await db.runTransaction(async tx => {
+    const snap = await tx.get(reservaRef);
+    if (!snap.exists) throw errorDe(404, "NOT_FOUND", "Reserva no encontrada");
+    const actual = { id: snap.id, ...snap.data() };
+    const update = { estado: status, updatedAt: new Date() };
+    if (status === "completada") {
+      update.asistio = true;
+      if (precioBase) {
+        const restSnap2 = await tx.get(db.collection("restaurants").doc(actual.restaurantId || actual.restauranteId || ""));
+        const pct2 = Number(restSnap2.data()?.comisionPct) || Number(require("../../config/env").env.COMISION_PCT) || 8;
+        update.totalPagado = Number(precioBase);
+        update.importeComision = Math.round((Number(precioBase) * pct2) / 100 * 100) / 100;
+      }
     }
-  }
-  if (status === "no_show") update.asistio = false;
-  await reservaRef.update(update);
+    if (status === "no_show") update.asistio = false;
+    tx.update(reservaRef, update);
+    return actual;
+  });
+  const estabaCompletada = reserva.estado === "completada";
+  if (status !== reserva.estado) await notificarReserva(reserva.uid, reservaId, status);
 
   if (status === "completada" && !estabaCompletada) {
     try {
