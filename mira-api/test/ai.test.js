@@ -180,6 +180,32 @@ test("snapshot del prompt: hash de CONTEXT + GUARDRAILS", () => {
   assert.match(prompt, /PROTOCOLO ReAct/);
 });
 
+test("idioma: el prompt pide responder en el idioma mandado por la web", () => {
+  // Regresión: la regla 5 estaba hardcodeada en español y la IA respondía
+  // en español aunque el usuario escribiera en inglés.
+  assert.match(buildSystemPrompt(null, "en").prompt, /Responde en English/);
+  assert.match(buildSystemPrompt(null, "ca").prompt, /Responde en català/);
+  assert.match(buildSystemPrompt(null, "es").prompt, /Responde en español/);
+
+  // Sin `lang` (contrato antiguo) se responde en español por defecto.
+  assert.match(buildSystemPrompt(null).prompt, /Responde en español/);
+
+  // Un valor no permitido no debe romper el prompt.
+  assert.match(buildSystemPrompt(null, "xx").prompt, /Responde en español/);
+});
+
+test("idioma: schema acepta lang válido y rechaza uno desconocido", async () => {
+  geminiMock.setGeminiHandler(() => ({ text: "Sure, here it is." }));
+
+  const ok = await post({ message: "hello", lang: "en" });
+  assert.equal(ok.status, 200);
+  assert.match(geminiMock.geminiCalls()[0].system, /Responde en English/);
+
+  const malo = await post({ message: "hello", lang: "fr" });
+  assert.equal(malo.status, 400);
+  assert.equal(malo.body.error, "VALIDATION_ERROR");
+});
+
 test("Idempotency-Key: no rompe cuando no hay needsConfirm (undefined en Firestore)", async () => {
   geminiMock.setGeminiHandler(() => ({ text: "Hola, ¿qué buscas hoy?" }));
 

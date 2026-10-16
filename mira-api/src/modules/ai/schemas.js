@@ -12,6 +12,8 @@ const agentSchema = z.object({
     .max(10)
     .default([]),
   confirmId: z.string().uuid().optional(),
+  // Idioma en el que la web quiere la respuesta. Opcional: sin él se responde en español.
+  lang: z.enum(["es", "ca", "en"]).optional(),
 });
 
 module.exports = { agentSchema };

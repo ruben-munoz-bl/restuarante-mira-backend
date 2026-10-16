@@ -9,11 +9,12 @@ const router = Router();
 
 router.post("/agent", optionalAuth, rateLimit(60000, 10), validate(agentSchema), idempotency, async (req, res, next) => {
   try {
-    const { message, history, confirmId } = req.validated;
+    const { message, history, confirmId, lang } = req.validated;
     const out = await aiService.runAgent({
       message,
       history,
       confirmId,
+      lang,
       user: req.user,
       requestId: req.id,
     });
