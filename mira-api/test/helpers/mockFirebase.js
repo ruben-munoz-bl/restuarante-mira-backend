@@ -154,11 +154,12 @@ function tieneIncremento(v) {
   return v && typeof v === "object" && !Array.isArray(v) && !(v instanceof Date)
     && (INCREMENTO in v || Object.values(v).some(tieneIncremento));
 }
-function aplicarCambios(prev, data) {
+function aplicarCambios(prev, data, mergeMapas = false) {
   const out = { ...(prev || {}) };
   for (const [k, v] of Object.entries(data)) {
     if (v && typeof v === "object" && INCREMENTO in v) out[k] = (Number(out[k]) || 0) + v[INCREMENTO];
-    else if (tieneIncremento(v)) out[k] = aplicarCambios(out[k], v);
+    else if (tieneIncremento(v) || (mergeMapas && v && typeof v === "object"
+      && !Array.isArray(v) && Object.keys(v).length > 0)) out[k] = aplicarCambios(out[k], v, mergeMapas);
     else out[k] = v;
   }
   return out;
@@ -179,7 +180,7 @@ function makeDocRef(collection, id) {
     async set(data, opts = {}) {
       if (opts.merge) {
         const prev = col(collection).get(id) || {};
-        col(collection).set(id, aplicarCambios(prev, clone(data)));
+        col(collection).set(id, aplicarCambios(prev, clone(data), true));
       } else {
         col(collection).set(id, clone(data));
       }

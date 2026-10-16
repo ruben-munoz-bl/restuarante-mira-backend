@@ -4,13 +4,13 @@ const { verifyFirebaseAuth, authorize } = require("../../middlewares/verifyFireb
 const { validate } = require("../../middlewares/validate");
 const userService = require("./service");
 
-const { documentoId, alergias, preferencias, accesibilidad, consentimientoCookies } = require("../../middlewares/inputSchemas");
+const { documentoId, alergias, preferencias, accesibilidad, consentimientoCookies, consentimientos } = require("../../middlewares/inputSchemas");
 const router = Router();
 
 router.get("/me", verifyFirebaseAuth, async (req, res, next) => {
   try {
     const me = await userService.getMe(req.user.uid);
-    res.json(me || { uid: req.user.uid, tipo: req.user.role, email: req.user.email || "" });
+    res.json(me || { uid: req.user.uid, tipo: req.user.role, email: req.user.email || "", consentimientos: {} });
   } catch (err) {
     next(err);
   }
@@ -25,10 +25,11 @@ const updateSchema = z.object({
   alergias: alergias.optional(),
   lang: z.enum(["es", "ca", "en"]).optional(),
   consentimientoCookies: consentimientoCookies.nullable().optional(),
+  consentimientos: consentimientos.optional(),
   preferencias: preferencias.nullable().optional(),
   accesibilidad: accesibilidad.nullable().optional(),
   favoritos: z.array(documentoId).max(500).optional(),
-});
+}).strict();
 
 router.put("/me", verifyFirebaseAuth, validate(updateSchema), async (req, res, next) => {
   try {

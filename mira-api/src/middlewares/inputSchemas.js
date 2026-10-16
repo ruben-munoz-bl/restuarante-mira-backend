@@ -18,4 +18,14 @@ const consentimientoCookies = z.object({
   analiticas: z.boolean().optional(), marketing: z.boolean().optional(),
   timestamp: z.string().datetime({ offset: true }).nullable().optional(),
 }).strict();
-module.exports = { documentoId, fechaCalendario, horaReserva, fechaPromocion, alergias, preferencias, accesibilidad, consentimientoCookies };
+// C01: mismo patrón estricto y fecha con offset que consentimientoCookies.
+const consentimientoPermiso = z.object({
+  estado: z.enum(["aceptado", "rechazado"]),
+  version: z.number().int().min(1).max(1000),
+  fecha: z.string().datetime({ offset: true }),
+}).strict();
+const consentimientos = z.object({
+  ubicacion: consentimientoPermiso.optional(),
+  notificaciones: consentimientoPermiso.optional(),
+}).strict();
+module.exports = { documentoId, fechaCalendario, horaReserva, fechaPromocion, alergias, preferencias, accesibilidad, consentimientoCookies, consentimientos };
