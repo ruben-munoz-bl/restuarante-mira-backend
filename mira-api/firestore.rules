@@ -25,8 +25,12 @@ service cloud.firestore {
 
     match /usuarios/{uid} {
       allow read: if isOwner(uid) || isAdmin();
-      allow create: if isSignedIn() && request.auth.uid == uid;
-      allow update: if isOwner(uid) || isAdmin();
+      // C01: consentimientos se escribe solo vía API (Admin SDK + zod).
+      // El resto del perfil conserva su vía de escritura actual.
+      allow create: if isOwner(uid)
+        && !request.resource.data.keys().hasAny(['consentimientos']);
+      allow update: if (isOwner(uid) || isAdmin())
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['consentimientos']);
     }
 
     // T04: dispositivos gestionados por la API; cada usuario solo lee los suyos.

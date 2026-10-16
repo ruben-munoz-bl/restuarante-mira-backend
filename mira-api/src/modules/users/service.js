@@ -1,7 +1,7 @@
 const { db } = require("../../middlewares/verifyFirebaseAuth");
 const { logger } = require("../../middlewares/errorHandler");
 
-const PERFIL_KEYS = ["tipo", "nombre", "email", "soloVegano", "alergias", "lang", "consentimientoCookies", "preferencias", "accesibilidad", "favoritos"];
+const PERFIL_KEYS = ["tipo", "nombre", "email", "soloVegano", "alergias", "lang", "consentimientoCookies", "consentimientos", "preferencias", "accesibilidad", "favoritos"];
 
 async function getMe(uid) {
   const snap = await db.collection("usuarios").doc(uid).get();
@@ -16,6 +16,7 @@ async function getMe(uid) {
     alergias: Array.isArray(d.alergias) ? d.alergias : [],
     lang: d.lang || "",
     consentimientoCookies: d.consentimientoCookies || null,
+    consentimientos: d.consentimientos || {},
     preferencias: d.preferencias || null,
     accesibilidad: d.accesibilidad || null,
     favoritos: Array.isArray(d.favoritos) ? d.favoritos : [],
@@ -32,6 +33,9 @@ async function updateMe(uid, datos) {
   PERFIL_KEYS.forEach((k) => {
     if (datos[k] !== undefined) update[k] = datos[k];
   });
+  // Firestore fusiona las hojas del mapa de forma atómica. Un mapa vacío
+  // sobrescribiría el existente: {} debe ser un no-op, nunca borrar decisiones.
+  if (update.consentimientos && Object.keys(update.consentimientos).length === 0) delete update.consentimientos;
   if (update.tipo !== undefined) {
     // Solo cliente ↔ empresa (registro como empresa). Un admin no se rebaja desde su perfil
     // y nadie se sube a admin por aquí: eso se hace a mano en la base de datos.
