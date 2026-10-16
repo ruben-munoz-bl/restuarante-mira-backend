@@ -125,7 +125,10 @@ async function cargarCandidatos() {
     if (!ofertaSnap.exists || !restSnap.exists) return null;
     const coordenadas = coordenadasDe(restSnap.data());
     if (!coordenadas) return null;
-    return { restaurante: { id: restSnap.id, nombre: restSnap.data().nombre || "", coordenadas }, oferta: vista(ofertaSnap) };
+    return {
+      restaurante: { id: restSnap.id, nombre: restSnap.data().nombre || "", coordenadas, partner: restSnap.data().partner === true },
+      oferta: vista(ofertaSnap),
+    };
   }));
   return lista.filter(Boolean);
 }

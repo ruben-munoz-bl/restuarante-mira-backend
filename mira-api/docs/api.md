@@ -3812,3 +3812,9 @@ Antes de consultar dispositivos, el servicio lee las preferencias del UID, sin c
 Una actualización confirmada afecta al siguiente envío. No se pueden retirar avisos que ya estuvieran en curso o aceptados por el proveedor. No hacen falta índices o reglas nuevos; no se modifica el endpoint genérico de perfil ni el frontend.
 
 Para PC 2: promociones empieza apagado hasta leer un `true` del servidor; nunca guardar `true` automáticamente al inicializar la pantalla. Enviar `{ promociones: true }` solo tras la activación explícita del usuario. Leer el mapa al abrir los ajustes, enviar únicamente el interruptor modificado y actualizar la UI con el mapa completo devuelto. Si la petición falla, no presentar el cambio como guardado. Prueba conjunta: desactivar promociones, comprobar que un emisor tipado no envía y que reservas/mensajes sí; reactivar y comprobar el siguiente envío. `scripts/probar-push.js` usa el tipo `reservas` y respeta su interruptor.
+
+### G11 · Restaurantes partner
+
+`PUT /v1/dashboard/restaurant/:id/partner` (solo admin) con `{ "partner": true | false }` → `200 { id, partner }`; 404 si no existe, 400 si no es booleano. Va aparte del PUT general (que descarta `partner`) para que una empresa no pueda marcarse a sí misma. Invalida el catálogo y la caché de `ofertas/cerca`.
+
+`GET /v1/ofertas/cerca` añade `restaurante.partner` (boolean). El listado de admin (`GET /v1/dashboard/restaurants`) también lo incluye. Los clientes solo avisan por distancia si el restaurante es partner o está en los favoritos del usuario.

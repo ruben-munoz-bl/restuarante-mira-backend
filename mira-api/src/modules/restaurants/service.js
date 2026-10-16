@@ -150,6 +150,7 @@ function versionInterna(r) {
     uid: r.uid || null,
     email: r.email || null,
     activo: r.activo !== false,
+    partner: r.partner === true,
     maxReservasPorHora: typeof r.maxReservasPorHora === "number" ? r.maxReservasPorHora : null,
   };
 }
