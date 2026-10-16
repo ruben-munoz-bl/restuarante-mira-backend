@@ -976,11 +976,11 @@ Esquema (`routes.js:18`):
 
 `updateMe` (`service.js:30`) filtra por `PERFIL_KEYS` (las claves del esquema), añade `actualizado` y hace `set(..., { merge: true })`. Reglas:
 
-- Si llega `tipo: "admin"` o cualquier campo desconocido (también anidado), devuelve 400.
+- Si llega `tipo: "admin"`, devuelve 400. Los campos extra de la raíz (p. ej. `plataforma`) se ignoran y no se guardan, igual que antes de C01; los objetos anidados conservan sus esquemas strict.
 - Si el usuario **ya** era `admin`, se descarta cualquier `tipo` (un admin no se rebaja desde su perfil).
 - Si el body tras el filtro no tiene nada, devuelve `{ updated: false }`.
 - C01: `GET` devuelve siempre `consentimientos` (`{}` si no existe, incluso sin perfil). `PUT` fusiona por campo sin perder el otro consentimiento, también ante peticiones concurrentes; `{ consentimientos: {} }` no borra nada. No se admiten `null`, campos extra, estados o fechas inválidos ni versiones fuera de 1–1000. Cookies conserva su campo independiente.
-- El UID procede exclusivamente del Bearer; no se acepta UID en body ni existe ruta de perfil ajeno. Errores de autenticación: 401 `MISSING_TOKEN` / `INVALID_TOKEN`.
+- El UID procede exclusivamente del Bearer; un UID extra en el body se ignora y no existe ruta de perfil ajeno. Errores de autenticación: 401 `MISSING_TOKEN` / `INVALID_TOKEN`.
 - Firestore permite la lectura habitual del perfil al titular/admin; los clientes no pueden crear, sustituir ni borrar `consentimientos` directamente. Se escribe por la API con Admin SDK; desplegar `firestore.rules` con C01.
 
 Ejemplo parcial: `PUT { "consentimientos": { "ubicacion": { "estado": "aceptado", "version": 1, "fecha": "2026-10-16T08:00:00.000Z" } } }`. Respuesta: `{ "updated": true }`. Una escritura posterior solo de `notificaciones` conserva `ubicacion`.

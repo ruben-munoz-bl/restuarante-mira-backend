@@ -29,7 +29,7 @@ const updateSchema = z.object({
   preferencias: preferencias.nullable().optional(),
   accesibilidad: accesibilidad.nullable().optional(),
   favoritos: z.array(documentoId).max(500).optional(),
-}).strict();
+});
 
 router.put("/me", verifyFirebaseAuth, validate(updateSchema), async (req, res, next) => {
   try {

@@ -54,8 +54,7 @@ for (const invalid of [null, [], 'aceptado', {},
   });
 }
 for (const body of [
-  { consentimientos: null }, { consentimientos: [] }, { desconocido: true },
-  { uid: 'u-cli2', consentimientos: { ubicacion: a } }, { consentimientos: { cookies: a } },
+  { consentimientos: null }, { consentimientos: [] }, { consentimientos: { cookies: a } },
   { consentimientos: { ubicacion: { ...a, lat: 41 } } },
   { consentimientos: { notificaciones: { ...a, uid: 'u-cli2' } } },
 ]) {
@@ -71,7 +70,9 @@ test('aislamiento: cada Bearer lee y escribe solo su perfil', async () => {
   await put({ consentimientos: { notificaciones: b } }, tokens.cliente2);
   assert.deepEqual((await get()).body.consentimientos, { ubicacion: a });
   assert.deepEqual((await get(tokens.cliente2)).body.consentimientos, { notificaciones: b });
-  assert.equal((await put({ uid: 'u-cli', consentimientos: { ubicacion: b } }, tokens.cliente2)).status, 400);
+  assert.equal((await put({ uid: 'u-cli', consentimientos: { ubicacion: b } }, tokens.cliente2)).status, 200);
+  assert.equal(store.get('usuarios').get('u-cli2').uid, 'u-cli2');
+  assert.deepEqual((await get(tokens.cliente2)).body.consentimientos, { ubicacion: b, notificaciones: b });
   assert.deepEqual((await get()).body.consentimientos, { ubicacion: a });
   for (const method of ['get', 'put']) {
     assert.equal((await request(app)[method]('/v1/users/u-cli').set('Authorization', `Bearer ${tokens.cliente2}`).send({ consentimientos: { ubicacion: b } })).status, 404);
@@ -83,4 +84,18 @@ test('GET y PUT rechazan falta de Bearer o token inválido', async () => {
     assert.equal((await request(app)[method]('/v1/users/me').send({})).status, 401);
     assert.equal((await request(app)[method]('/v1/users/me').set('Authorization', `Bearer ${tokens.invalid}`).send({})).status, 401);
   }
+});
+
+
+test('campos extra en la raíz (plataforma) se ignoran sin guardarlos; consentimientos sigue estricto', async () => {
+  const res = await put({ nombre: 'Ana', plataforma: 'web', desconocido: true, consentimientos: { ubicacion: a } });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.updated, true);
+  const perfil = store.get('usuarios').get('u-cli');
+  assert.equal(perfil.nombre, 'Ana');
+  assert.equal(Object.hasOwn(perfil, 'plataforma'), false);
+  assert.equal(Object.hasOwn(perfil, 'desconocido'), false);
+  assert.deepEqual((await get()).body.consentimientos, { ubicacion: a });
+  assert.equal((await put({ plataforma: 'web' })).body.updated, false);
+  assert.equal((await put({ consentimientos: { plataforma: 'web' } })).status, 400);
 });
