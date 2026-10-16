@@ -354,3 +354,32 @@ describe("estadísticas de ofertas (contrato fase 3, para G07)", () => {
   });
 });
 
+
+describe("G11 · restaurantes partner", () => {
+  const R1 = { lat: 40.4, lng: -3.7 };
+  const ponerPartner = (id, partner, token = tokens.admin) =>
+    request(app).put(`/v1/dashboard/restaurant/${id}/partner`).set(auth(token)).send({ partner });
+
+  test("solo el admin cambia partner; la empresa recibe 403 y el restaurante inexistente 404", async () => {
+    assert.equal((await ponerPartner("r1", true, tokens.empresa)).status, 403);
+    assert.equal((await ponerPartner("no-existe", true)).status, 404);
+    assert.equal((await ponerPartner("r1", "si")).status, 400);
+    const res = await ponerPartner("r1", true);
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { id: "r1", partner: true });
+    assert.equal(store.get("restaurants").get("r1").partner, true);
+  });
+
+  test("la empresa no puede hacerse partner con el PUT general", async () => {
+    await request(app).put("/v1/dashboard/restaurant/r1").set(auth(tokens.empresa)).send({ nombre: "R1", partner: true });
+    assert.notEqual(store.get("restaurants").get("r1").partner, true);
+  });
+
+  test("ofertas/cerca indica si el restaurante es partner y se actualiza al cambiarlo", async () => {
+    await crear(oferta());
+    const cerca = () => request(app).get(`/v1/ofertas/cerca?lat=${R1.lat}&lng=${R1.lng}`);
+    assert.equal((await cerca()).body.data[0].restaurante.partner, false);
+    await ponerPartner("r1", true);
+    assert.equal((await cerca()).body.data[0].restaurante.partner, true);
+  });
+});

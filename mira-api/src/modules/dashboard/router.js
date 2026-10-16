@@ -1,6 +1,6 @@
 const express = require("express");
 const { z } = require("zod");
-const { verifyFirebaseAuth, authorize } = require("../../middlewares/verifyFirebaseAuth");
+const { verifyFirebaseAuth, authorize, db } = require("../../middlewares/verifyFirebaseAuth");
 const { asyncHandler } = require("../../middlewares/errorHandler");
 const { validate } = require("../../middlewares/validate");
 const {
@@ -75,6 +75,18 @@ router.get("/restaurants", verifyFirebaseAuth, authorize("admin"), asyncHandler(
     cocina: req.query.cocina || null,
   });
   res.json(result);
+}));
+
+// G11: solo el admin marca un restaurante como partner (sus ofertas avisan a todos por distancia).
+// Fuera de restaurantUpdateSchema para que una empresa no pueda hacerse partner a sí misma.
+router.put("/restaurant/:id/partner", verifyFirebaseAuth, authorize("admin"), validate(z.object({ partner: z.boolean() }).strict()), asyncHandler(async (req, res) => {
+  const ref = db.collection("restaurants").doc(String(req.params.id));
+  const snap = await ref.get();
+  if (!snap.exists) return res.status(404).json({ error: "NOT_FOUND", message: "Restaurante no encontrado" });
+  await ref.update({ partner: req.validated.partner });
+  restaurantService.invalidarCatalogoPorEscritura();
+  require("../ofertas/service").invalidarCache();
+  res.json({ id: snap.id, partner: req.validated.partner });
 }));
 
 router.delete("/restaurant/:id", verifyFirebaseAuth, authorize("admin"), asyncHandler(async (req, res) => {
