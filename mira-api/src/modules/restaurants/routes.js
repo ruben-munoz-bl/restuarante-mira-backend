@@ -40,7 +40,7 @@ router.get("/count", optionalAuth, async (req, res, next) => {
 router.get("/mapa", optionalAuth, async (req, res, next) => {
   try {
     const items = await restaurantService.listarMapa({ ciudad: req.query.ciudad || null });
-    res.set("Cache-Control", "public, max-age=300");
+    res.set("Cache-Control", "no-cache"); // revalida con ETag: los cambios se ven al momento
     res.json({ items, total: items.length });
   } catch (err) {
     next(err);
