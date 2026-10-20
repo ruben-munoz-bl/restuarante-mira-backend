@@ -3824,3 +3824,7 @@ Para PC 2: promociones empieza apagado hasta leer un `true` del servidor; nunca 
 `PUT /v1/dashboard/restaurant/:id/partner` (solo admin) con `{ "partner": true | false }` → `200 { id, partner }`; 404 si no existe, 400 si no es booleano. Va aparte del PUT general (que descarta `partner`) para que una empresa no pueda marcarse a sí misma. Invalida el catálogo y la caché de `ofertas/cerca`.
 
 `GET /v1/ofertas/cerca` añade `restaurante.partner` (boolean). El listado de admin (`GET /v1/dashboard/restaurants`) también lo incluye. Los clientes solo avisan por distancia si el restaurante es partner o está en los favoritos del usuario.
+
+### Refrescar cachés (admin)
+
+`POST /v1/dashboard/cache/refrescar` (solo admin, sin cuerpo) → `200 { ok: true }`. Vacía el catálogo de restaurantes (y marca `_catalogo` como obsoleto), la caché de 60 s de `ofertas/cerca` y la del panel de admin. Lo usa el botón «Actualizar datos» del panel Ops.
