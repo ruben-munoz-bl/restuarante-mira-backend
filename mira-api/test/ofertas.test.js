@@ -355,6 +355,16 @@ describe("estadísticas de ofertas (contrato fase 3, para G07)", () => {
 });
 
 
+describe("Refrescar cachés (admin)", () => {
+  test("solo el admin vacía las cachés; la empresa recibe 403 y sin sesión 401", async () => {
+    assert.equal((await request(app).post("/v1/dashboard/cache/refrescar")).status, 401);
+    assert.equal((await request(app).post("/v1/dashboard/cache/refrescar").set(auth(tokens.empresa))).status, 403);
+    const res = await request(app).post("/v1/dashboard/cache/refrescar").set(auth(tokens.admin));
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { ok: true });
+  });
+});
+
 describe("G11 · restaurantes partner", () => {
   const R1 = { lat: 40.4, lng: -3.7 };
   const ponerPartner = (id, partner, token = tokens.admin) =>

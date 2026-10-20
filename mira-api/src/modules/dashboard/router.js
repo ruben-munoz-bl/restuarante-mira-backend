@@ -17,6 +17,7 @@ const {
   setRachaAdmin,
   ajustarRachaDias,
   unclaimLoginHoy,
+  invalidarPanelAdmin,
 } = require("./service");
 const { getAllUsers } = require("../users/service");
 const { subirTicket } = require("../reservations/service");
@@ -87,6 +88,15 @@ router.put("/restaurant/:id/partner", verifyFirebaseAuth, authorize("admin"), va
   restaurantService.invalidarCatalogoPorEscritura();
   require("../ofertas/service").invalidarCache();
   res.json({ id: snap.id, partner: req.validated.partner });
+}));
+
+// Botón «Actualizar datos» del panel admin: vacía las cachés para ver al momento
+// los cambios hechos en Firestore (catálogo, ofertas cercanas y panel).
+router.post("/cache/refrescar", verifyFirebaseAuth, authorize("admin"), asyncHandler(async (req, res) => {
+  restaurantService.invalidarCatalogoPorEscritura();
+  require("../ofertas/service").invalidarCache();
+  invalidarPanelAdmin();
+  res.json({ ok: true });
 }));
 
 router.delete("/restaurant/:id", verifyFirebaseAuth, authorize("admin"), asyncHandler(async (req, res) => {
