@@ -2,7 +2,7 @@ const { Router } = require("express");
 const { z } = require("zod");
 const { verifyFirebaseAuth, authorize, optionalAuth } = require("../../middlewares/verifyFirebaseAuth");
 const { validate } = require("../../middlewares/validate");
-const { idempotency } = require("../../middlewares/rateLimit");
+const { idempotency, rateLimit } = require("../../middlewares/rateLimit");
 const reservationService = require("./service");
 
 const { documentoDelRestaurante } = require("../../middlewares/ownership");
@@ -39,7 +39,7 @@ router.get("/availability", optionalAuth, validate(disponibilidadSchema, "query"
   }
 });
 
-router.post("/", verifyFirebaseAuth, validate(crearReservaSchema), idempotency, async (req, res, next) => {
+router.post("/", verifyFirebaseAuth, rateLimit(60000, 20), validate(crearReservaSchema), idempotency, async (req, res, next) => {
   try {
     const result = await reservationService.crearReserva({
       uid: req.user.uid,

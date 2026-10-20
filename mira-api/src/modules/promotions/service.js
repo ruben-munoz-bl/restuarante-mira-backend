@@ -39,12 +39,20 @@ async function crearPromocion({ uid, restauranteId, tipo, fechaInicio, fechaFin,
   return { id: docRef.id };
 }
 
-async function getPromociones({ restauranteId, estado } = {}) {
+async function getPromociones({ restauranteId, estado, autenticado = false } = {}) {
   let query = db.collection("promociones");
   if (restauranteId) query = query.where("restauranteId", "==", restauranteId);
   if (estado) query = query.where("estado", "==", estado);
   const snap = await query.get();
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  return snap.docs.map((d) => {
+    const promo = { id: d.id, ...d.data() };
+    // Sin sesión se ocultan presupuesto y gasto: son datos del restaurante.
+    if (!autenticado) {
+      delete promo.presupuestoTotal;
+      delete promo.gastoAcumulado;
+    }
+    return promo;
+  });
 }
 
 async function getPromoActiva(restauranteId) {

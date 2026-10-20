@@ -2,6 +2,7 @@ const { Router } = require("express");
 const { z } = require("zod");
 const { verifyFirebaseAuth, db } = require("../../middlewares/verifyFirebaseAuth");
 const { validate } = require("../../middlewares/validate");
+const { rateLimit } = require("../../middlewares/rateLimit");
 const reviewService = require("./service");
 
 const { documentoId } = require("../../middlewares/inputSchemas");
@@ -13,7 +14,7 @@ const crearSchema = z.object({
   comentario: z.string().trim().min(1).max(4000),
 });
 
-router.post("/", verifyFirebaseAuth, validate(crearSchema), async (req, res, next) => {
+router.post("/", verifyFirebaseAuth, rateLimit(60000, 10), validate(crearSchema), async (req, res, next) => {
   try {
     const userSnap = await db.collection("usuarios").doc(req.user.uid).get();
     const userData = userSnap.exists ? userSnap.data() : {};
@@ -44,6 +45,7 @@ router.get("/user/:usuarioId", async (req, res, next) => {
     const list = await reviewService.listarResenasDeUsuario(req.params.usuarioId);
     res.json(list);
   } catch (err) {
+    if (err.message.includes("no encontrado")) return res.status(404).json({ error: "NOT_FOUND", message: err.message });
     next(err);
   }
 });

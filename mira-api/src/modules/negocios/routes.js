@@ -2,6 +2,7 @@ const { Router } = require("express");
 const { z } = require("zod");
 const { verifyFirebaseAuth, authorize } = require("../../middlewares/verifyFirebaseAuth");
 const { validate } = require("../../middlewares/validate");
+const { rateLimit } = require("../../middlewares/rateLimit");
 const negocioService = require("./service");
 
 const router = Router();
@@ -15,7 +16,9 @@ const proponerSchema = z.object({
   categorias: z.array(z.string()).min(1),
   telefono: z.string().optional(),
   descripcion: z.string().optional(),
-  imagen_url: z.string().optional(),
+  // https únicamente: una URL http/javascript en un <img> o en un redirect es
+  // un vector de contenido inseguro / open redirect.
+  imagen_url: z.string().url().startsWith("https://").optional(),
   accesoDiscapacidad: z.boolean().nullable().optional(),
   menuInfantil: z.boolean().nullable().optional(),
   entornoTranquilo: z.boolean().nullable().optional(),
@@ -24,7 +27,7 @@ const proponerSchema = z.object({
   alergenos: z.string().optional(),
 });
 
-router.post("/", verifyFirebaseAuth, validate(proponerSchema), async (req, res, next) => {
+router.post("/", verifyFirebaseAuth, rateLimit(3600000, 10), validate(proponerSchema), async (req, res, next) => {
   try {
     const result = await negocioService.proponerNegocio({
       uid: req.user.uid,
