@@ -35,7 +35,7 @@ const { crearPoliticaCors } = require("./middlewares/corsOrigins");
 const isAllowedOrigin = crearPoliticaCors(env.CORS_ALLOWED_ORIGINS);
 app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
 
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 app.use(requestId);
 app.use(middlewareMetricas);
 app.use(requestLogger);

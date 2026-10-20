@@ -52,6 +52,8 @@ AI_ENABLED_TOOLS: z.string().default("all"),
   // Caché del catálogo en memoria. 15 min: los cambios propios invalidan al
   // instante (invalidarCatalogo), así que esto solo afecta a cambios externos.
   CATALOG_CACHE_TTL_MS: z.coerce.number().default(900000),
+  // La purga de auditoría borra eventos reales: en producción solo con "true".
+  AUDITORIA_PURGE_ALLOW: z.string().optional(),
 });
 
 const refined = envSchema.refine(

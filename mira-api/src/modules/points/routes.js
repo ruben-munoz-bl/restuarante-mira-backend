@@ -2,6 +2,7 @@ const { Router } = require("express");
 const { z } = require("zod");
 const { verifyFirebaseAuth } = require("../../middlewares/verifyFirebaseAuth");
 const { validate } = require("../../middlewares/validate");
+const { rateLimit } = require("../../middlewares/rateLimit");
 const { env } = require("../../config/env");
 const pointsService = require("./service");
 const dailyLogin = require("./dailyLogin");
@@ -53,7 +54,7 @@ const redeemSchema = z
     message: "Indica 'puntos' (número) o 'descuentoId' (5, 10 o 20)",
   });
 
-router.post("/redeem", verifyFirebaseAuth, validate(redeemSchema), async (req, res, next) => {
+router.post("/redeem", verifyFirebaseAuth, rateLimit(60000, 30), validate(redeemSchema), async (req, res, next) => {
   try {
     const { puntos, descuentoId, restauranteId } = req.validated;
 
@@ -76,7 +77,7 @@ router.post("/redeem", verifyFirebaseAuth, validate(redeemSchema), async (req, r
   }
 });
 
-router.post("/daily-login", verifyFirebaseAuth, async (req, res, next) => {
+router.post("/daily-login", verifyFirebaseAuth, rateLimit(60000, 10), async (req, res, next) => {
   try {
     const result = await dailyLogin.reclamarLoginDiario(req.user.uid);
     res.status(result.yaReclamado ? 200 : 201).json(result);
@@ -89,7 +90,7 @@ router.get("/wheel/prizes", verifyFirebaseAuth, async (req, res) => {
   res.json({ prizes: pointsService.getWheelPrizes() });
 });
 
-router.post("/wheel", verifyFirebaseAuth, async (req, res, next) => {
+router.post("/wheel", verifyFirebaseAuth, rateLimit(60000, 10), async (req, res, next) => {
   try {
     // force solo admin en dev (clientes no pueden saltarse el lock de 7 días).
     const force = isDev && req.query.force === "1" && req.user.role === "admin";
@@ -110,7 +111,7 @@ router.get("/discounts", verifyFirebaseAuth, async (req, res) => {
   res.json({ descuentos: pointsService.listarDescuentos() });
 });
 
-router.post("/discount/claim", verifyFirebaseAuth, validate(discountClaimSchema), async (req, res, next) => {
+router.post("/discount/claim", verifyFirebaseAuth, rateLimit(60000, 30), validate(discountClaimSchema), async (req, res, next) => {
   try {
     const result = await pointsService.canjearDescuento(
       req.user.uid,
@@ -127,7 +128,7 @@ router.post("/discount/claim", verifyFirebaseAuth, validate(discountClaimSchema)
 });
 
 // Reintento manual de los puntos de una reseña propia (crear la reseña ya los da).
-router.post("/review", verifyFirebaseAuth, validate(z.object({ reviewId: z.string().min(1).max(200) })), async (req, res, next) => {
+router.post("/review", verifyFirebaseAuth, rateLimit(60000, 10), validate(z.object({ reviewId: z.string().min(1).max(200) })), async (req, res, next) => {
   try {
     const result = await pointsService.reviewPoints(req.user.uid, req.validated.reviewId);
     res.status(result.puntos > 0 ? 201 : 200).json(result);

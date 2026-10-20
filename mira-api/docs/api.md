@@ -3584,25 +3584,25 @@ Los contadores se actualizan **en la misma transacción** con `admin.firestore.F
 
 ---
 
-## 24. Observaciones de seguridad derivadas del código
+## 24. Observaciones de seguridad
 
-Puntos donde el código actual **no** aplica control de acceso, documentados porque son relevantes para el cliente y para cualquier auditoría:
+### 24.1 Endurecimiento aplicado (2026-10-20)
 
-| Endpoint | Observación |
+| Punto | Estado |
 |---|---|
-| `PUT /v1/restaurants/:id` | Cualquier usuario autenticado edita cualquier restaurante: no comprueba propiedad ni rol (`restaurants/routes.js:95`). |
-| `GET /v1/tickets/:id` | Cualquier `empresa` lee cualquier ticket: la comparación es por rol, no por `restaurantId` (`tickets/service.js:58`). |
-| `GET /v1/promotions/:id/stats` | Cualquier `empresa` lee estadísticas de cualquier promoción (`promotions/routes.js:41`). |
-| `POST /v1/promotions` | La comprobación de dueño solo aplica si el restaurante tiene `ownerUid`; sin él, cualquiera puede crear promo (`promotions/service.js:13`). |
-| `PUT /v1/mensajes/:id/read` | Marca como leído el mensaje de otro usuario: no valida `mensajes.uid` (`mensajes/service.js:19`). |
-| `PUT /v1/contactos/:id/resolve` | Marca resuelta cualquier incidencia por id (`contactos/service.js:33`). |
-| `GET /v1/reviews/user/:usuarioId` | Público y sin validar que el `usuarioId` corresponda a nadie concreto (`reviews/routes.js:41`). |
-| `POST /v1/points/review` | Abona 20 puntos sin comprobar que exista una reseña (`points/service.js:200`). |
-| `PUT /v1/dashboard/restaurant/:id` | Con rol `empresa` no se comprueba propiedad del restaurante (`dashboard/service.js:655`). |
-| `POST /v1/dashboard/points/racha/unclaim-today` | Revierte la racha pero **no** devuelve los puntos ya abonados (`dashboard/service.js:814`). |
-| `POST /v1/auditoria/purge` | Borra eventos reales; protegido solo por rol `admin` + confirmación literal `"PURGAR"`. |
+| `POST /v1/points/*`, `/v1/reservations`, `/v1/invite`, `/v1/negocios`, `/v1/reviews` | Rate limit por usuario/IP: puntos 10–30/min, reservas 20/min, reviews 10/min, negocios e invitaciones 10/h. |
+| Body de las peticiones | `express.json({ limit: "1mb" })`: un JSON mayor devuelve 413. |
+| `POST /v1/auditoria/purge` | En producción queda deshabilitada salvo `AUDITORIA_PURGE_ALLOW=true`; sigue exigiendo `admin` + `{ confirmacion: "PURGAR" }`. |
+| `POST /v1/negocios` | `imagen_url` solo admite URLs `https://`. |
+| `GET /v1/promotions` | Sin sesión no expone `presupuestoTotal` ni `gastoAcumulado`. |
+| `GET /v1/reviews/user/:usuarioId` | Devuelve 404 si el usuario no existe; sigue siendo público. |
 
-Ninguno de estos puntos se puede cerrar desde el frontend: son cambios de backend.
+### 24.2 Ownership y control de acceso
+
+`main` ya aplica `middlewares/ownership.js` en restaurantes, tickets, promociones, mensajes y dashboard: `PUT /v1/restaurants/:id`, `GET /v1/tickets/:id`, `GET /v1/promotions/:id/stats`, `POST /v1/promotions`, `PUT /v1/mensajes/:id/read` y `PUT /v1/dashboard/restaurant/:id` comprueban propiedad o rol. `PUT /v1/contactos/:id/resolve` está restringido a `admin`. `POST /v1/points/review` exige el `reviewId` de una reseña propia (BUG-111).
+
+Queda como observación abierta: `POST /v1/dashboard/points/racha/unclaim-today` revierte la racha pero no descuenta los puntos ya abonados.
+
 ### BUG-015 — invitaciones (Tanda 2)
 
 `GET /v1/invite/my` añade `puntosTotales`; `aceptadas` cuenta ahora las invitaciones

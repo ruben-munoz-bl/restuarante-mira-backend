@@ -41,7 +41,7 @@ const emailSchema = z.string().trim().regex(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, "No ex
 const inviteSchema = z.object({ email: emailSchema.optional(), emailInvitado: emailSchema.optional() })
   .refine((d) => d.email || d.emailInvitado, { message: "email requerido" });
 
-router.post("/", verifyFirebaseAuth, validate(inviteSchema), async (req, res, next) => {
+router.post("/", verifyFirebaseAuth, rateLimit(3600000, 10), validate(inviteSchema), async (req, res, next) => {
   try {
     const email = req.validated.email || req.validated.emailInvitado;
     const result = await invitationService.crearInvitacion(req.user.uid, email);

@@ -9,6 +9,7 @@ const { verifyFirebaseAuth, optionalAuth, authorize } = require("../../middlewar
 const { asyncHandler } = require("../../middlewares/errorHandler");
 const { validate } = require("../../middlewares/validate");
 const { rateLimit } = require("../../middlewares/rateLimit");
+const { env } = require("../../config/env");
 const store = require("./store");
 const svc = require("./service");
 const ag = require("./agregados");
@@ -192,6 +193,14 @@ router.post("/sim/reset", ...soloAdmin, asyncHandler(async (req, res) => {
 }));
 
 router.post("/purge", ...soloAdmin, asyncHandler(async (req, res) => {
+  // En producción la purga queda deshabilitada por defecto: borra eventos
+  // reales de auditoría. Se habilita solo con AUDITORIA_PURGE_ALLOW=true.
+  if (env.NODE_ENV === "production" && env.AUDITORIA_PURGE_ALLOW !== "true") {
+    return res.status(403).json({
+      error: "FORBIDDEN",
+      message: "Purga deshabilitada en producción (define AUDITORIA_PURGE_ALLOW=true para activarla)",
+    });
+  }
   const anios = Number(req.query.anios);
   if (!Number.isFinite(anios) || anios < 1) return res.status(400).json({ error: "VALIDATION_ERROR", message: "anios >= 1 requerido" });
   if (req.body?.confirmacion !== "PURGAR") return res.status(400).json({ error: "CONFIRMACION_REQUERIDA", message: "Envía { confirmacion: 'PURGAR' }" });

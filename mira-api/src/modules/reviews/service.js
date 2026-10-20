@@ -28,6 +28,9 @@ async function listarResenasDeRestaurante(restauranteId) {
 }
 
 async function listarResenasDeUsuario(usuarioId) {
+  // El perfil es público, pero solo si el usuario existe: evita sondear ids.
+  const userDoc = await db.collection("usuarios").doc(String(usuarioId)).get();
+  if (!userDoc.exists) throw new Error("Usuario no encontrado");
   const snap = await db.collection("resenas").where("usuarioId", "==", usuarioId).get();
   const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   list.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
