@@ -77,9 +77,10 @@ async function catalogo() {
     // recién aprobado no aparecería nunca), no está marcado como sucio y su
     // recuento sigue coincidiendo con la colección.
     const doc = await leerCatalogoMapa();
-    const usable = doc && Array.isArray(doc.restaurantes) && doc.restaurantes.length;
+    const usable = doc && Array.isArray(doc.restaurantes) && doc.restaurantes.length
+      && Array.isArray(doc.version) && doc.version.includes("creado");
     if (usable && esFresco(doc.generadoAt) && !sucio && !(await catalogoDesactualizado(doc))) {
-      const items = doc.restaurantes.map((r) => ({ ...r, id: r.id || r._id }));
+      const items = doc.restaurantes.map((r) => mapearDoc(r.id || r._id, r));
       cache = { at: Date.now(), items, byId: new Map(items.map((r) => [r.id, r])), refrescando: false, parcial: true };
       stats.cargas += 1;
       logger.info({ total: items.length, fuente: "_catalogo" }, "restaurants cache hidratada del documento");
@@ -128,7 +129,7 @@ const DOC_CATALOGO = "_catalogo";
 const MAX_BYTES_CATALOGO = 800 * 1024; // margen sobre el límite de 1 MiB de Firestore
 
 // Lo que ve el frontend en /mapa: 8 campos, ~198 KB para 700 restaurantes.
-const CAMPOS_MAPA = ["id", "nombre", "coordenadas", "rating_yelp", "precio", "categorias", "imagen_url", "ciudad"];
+const CAMPOS_MAPA = ["id", "nombre", "coordenadas", "rating_yelp", "precio", "categorias", "imagen_url", "ciudad", "creado"];
 
 // Lo que se guarda en el documento _catalogo. Son los mismos + lo que el
 // backend necesita para NO releer el restaurante suelto en cada búsqueda
@@ -137,6 +138,7 @@ function versionInterna(r) {
   return {
     id: r.id,
     nombre: r.nombre,
+    creado: fechaAltaISO(r.creado),
     coordenadas: r.coordenadas || null,
     rating_yelp: typeof r.rating_yelp === "number" ? r.rating_yelp : null,
     total_resenas_yelp: typeof r.total_resenas_yelp === "number" ? r.total_resenas_yelp : null,
@@ -159,6 +161,7 @@ function versionMapa(r) {
   return {
     id: r.id,
     nombre: r.nombre,
+    creado: fechaAltaISO(r.creado),
     coordenadas: r.coordenadas || null,
     rating_yelp: typeof r.rating_yelp === "number" ? r.rating_yelp : null,
     precio: r.precio || null,
@@ -256,8 +259,23 @@ function estadisticasCache() {
   };
 }
 
+// Solo se usa la fecha real guardada en `creado`: ni createdAt de importación
+// ni la fecha de hoy sustituyen a un alta desconocida (Yelp => null).
+function fechaAltaISO(valor) {
+  if (valor == null) return null;
+  try {
+    let fecha;
+    if (typeof valor.toDate === "function") fecha = valor.toDate();
+    else if (valor instanceof Date) fecha = valor;
+    else if (typeof valor === "string" && /^\d{4}-\d{2}-\d{2}T/.test(valor)) fecha = new Date(valor);
+    else if (typeof valor === "object" && Number.isFinite(valor.seconds ?? valor._seconds)) {
+      fecha = new Date((valor.seconds ?? valor._seconds) * 1000 + (valor.nanoseconds ?? valor._nanoseconds ?? 0) / 1e6);
+    }
+    return fecha instanceof Date && Number.isFinite(fecha.getTime()) ? fecha.toISOString() : null;
+  } catch { return null; }
+}
 function mapearDoc(id, data) {
-  return { id, ...data };
+  return { id, ...data, creado: fechaAltaISO(data.creado) };
 }
 
 function decodeCursor(cursor) {

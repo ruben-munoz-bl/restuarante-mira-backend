@@ -3866,3 +3866,5 @@ Orden de revisión/unión: `feat/M02-carta` → `feat/M03-pedido-reserva` → `f
 
 ### Menores de revisión M04
 Cancelar una reserva con presentadaEn devuelve 409 CONFLICT, también para admin y por el cambio de estado del panel, sin liberar aforo ni retirar puntos. El listado del restaurante filtra desde/hasta en ambas consultas Firestore antes de leer perfiles; conserva el rango inclusivo y el orden de la respuesta. Sin cambios al contrato de M07 ni despliegues.
+## M13 · Fecha de alta para «Nuevos» (M07)
+`GET /v1/restaurants?all=1` y `/v1/restaurants/mapa` incluyen `creado: string ISO | null`. Se normaliza el campo real `creado` (Timestamp/Date/ISO), también en la caché `_catalogo`; una caché anterior sin ese campo se regenera. No se inventan fechas para Yelp ni se usa la fecha de importación como alta. No hay backfill. La aprobación de propuestas por admin ya guarda el alta real del restaurante; test de ese flujo incluido.
