@@ -8,6 +8,8 @@ const reservationService = require("./service");
 const { documentoDelRestaurante } = require("../../middlewares/ownership");
 const { precioSchema, ticketSchema } = require("../../middlewares/businessSchemas");
 const { documentoId, fechaCalendario, horaReserva } = require("../../middlewares/inputSchemas");
+const { pedidoSchema, listadoSchema } = require("./pedido");
+const { comprobarRestaurante } = require("../../middlewares/ownership");
 const router = Router();
 
 const crearReservaSchema = z.object({
@@ -17,6 +19,7 @@ const crearReservaSchema = z.object({
   hora: horaReserva,
   comensales: z.union([z.number().int().min(1).max(10), z.string().trim().regex(/^(?:[1-9]|10)$/).transform(Number)]),
   comentarios: z.string().max(500).optional(),
+  pedido: pedidoSchema.optional(),
   nombreRestaurante: z.string().max(200).optional(),
   usuarioNombre: z.string().max(200).optional(),
   usuarioEmail: z.union([z.string().email().max(254), z.literal("")]).optional(),
@@ -49,6 +52,8 @@ router.post("/", verifyFirebaseAuth, rateLimit(60000, 20), validate(crearReserva
     });
     res.status(201).json(result);
   } catch (err) {
+    if (err.code === "PLATO_NO_DISPONIBLE") return res.status(400).json({ error: err.code, platoId: err.platoId });
+    if (err.code === "SIN_CARTA") return res.status(400).json({ error: err.code });
     if (err.message.includes("Completo") || err.message.includes("Máximo")) {
       return res.status(409).json({ error: "CONFLICT", message: err.message });
     }
@@ -57,6 +62,14 @@ router.post("/", verifyFirebaseAuth, rateLimit(60000, 20), validate(crearReserva
     }
     next(err);
   }
+});
+
+router.get("/restaurante", verifyFirebaseAuth, authorize("empresa", "admin"), validate(listadoSchema, "query"), async (req, res, next) => {
+  try {
+    const { restauranteId, desde, hasta } = req.validated;
+    await comprobarRestaurante(restauranteId, req.user);
+    res.json({ data: await reservationService.delRestaurante(restauranteId, desde, hasta) });
+  } catch (err) { next(err); }
 });
 
 router.get("/", verifyFirebaseAuth, async (req, res, next) => {

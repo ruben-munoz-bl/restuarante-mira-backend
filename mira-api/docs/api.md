@@ -3836,3 +3836,9 @@ Contrato: bóveda `Proyecto/Contratos API.md`, M01 y precisiones del 2026-10-22.
 - `PUT /v1/cartas/:restauranteId`: empresa dueña o admin; sustituye `{ categorias: [{ id?, nombre, platos: [{ id?, nombre, descripcion, precio, foto?, alergenos, disponible }] }] }`. Devuelve carta completa e IDs generados. No modifica reservas.
 - 1–30 categorías, 0–60 platos/categoría, máximo 300 platos. IDs `^[A-Za-z0-9_-]{1,40}$`, categorías únicas y platos únicos en toda la carta. Precio EUR 0.01–999.99 con hasta dos decimales; foto HTTPS o null. Alérgenos: gluten, lactosa, huevo, frutos_secos, marisco, pescado, soja.
 - Errores: 400 VALIDATION_ERROR, 401 MISSING_TOKEN/INVALID_TOKEN, 403 FORBIDDEN, 404 NOT_FOUND. Las reglas Firestore se cierran y prueban en M04, sin despliegue.
+
+### M03 · Pedido fijo en la reserva
+`POST /v1/reservations` acepta `pedido?: { lineas: [{ platoId, cantidad }] }` (1–30 líneas únicas, cantidad entera 1–20). Lee la carta dentro de la transacción de reserva y copia nombre, precio, cantidad y subtotal; calcula en céntimos. Añade `pedido` a la respuesta 201. No otorga puntos ni admite nombre/precio/total aportados por el cliente.
+- Sin carta: 400 `{ error: "SIN_CARTA" }`; plato ausente, ajeno o agotado: 400 `{ error: "PLATO_NO_DISPONIBLE", platoId }`. Fallos no consumen aforo.
+- `GET /v1/reservations` incluye `pedido` y `presentadaEn` (null en registros antiguos). No hay endpoint de edición; cancelar conserva la copia como historial de la reserva cancelada.
+- `GET /v1/reservations/restaurante?restauranteId=...&desde=...&hasta=...`: empresa dueña o admin, listado con nombre del perfil y pedido, sin UID/email. Ambos días incluidos; desde=hoy Madrid y hasta=desde por defecto, diferencia máxima 31 días. Fechas inválidas/invertidas → 400. Consultas por igualdad a ambos alias de restaurante, deduplicación y filtro/orden por fecha/hora; sin índice compuesto nuevo.

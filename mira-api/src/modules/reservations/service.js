@@ -1,3 +1,4 @@
+const { copiarPedido } = require("./pedido");
 const { db } = require("../../middlewares/verifyFirebaseAuth");
 const { notificarReserva } = require("../push/notificar");
 const { logger } = require("../../middlewares/errorHandler");
@@ -58,7 +59,7 @@ async function getDisponibilidad(restaurantId, fecha, hora, uid = null) {
   return { limite, ocupadas, ...espera().libresPara(aforo, limite, uid) };
 }
 
-async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, comensales, comentarios, usuario }) {
+async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, comensales, comentarios, usuario, pedido }) {
   const restId = restaurantId || restauranteId;
   if (!SLOTS.includes(hora)) throw errorDe(400, "VALIDATION_ERROR", "Hora no válida");
   const n = Number(comensales);
@@ -84,6 +85,8 @@ async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, com
       throw e;
     }
 
+    const carta = pedido ? await tx.get(db.collection("cartas").doc(restId)) : null;
+    const pedidoFijo = copiarPedido(carta?.exists ? carta.data() : null, pedido);
     const codigo = generarCodigo();
     const nuevaRef = db.collection("reservas").doc();
     tx.set(nuevaRef, {
@@ -104,6 +107,8 @@ async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, com
       comensales: n,
       comentarios: (comentarios || "").trim(),
       estado: "pendiente",
+      pedido: pedidoFijo,
+      presentadaEn: null,
       codigo,
       ticketId: null,
       puntosGenerados: 0,
@@ -115,7 +120,7 @@ async function crearReserva({ uid, restaurantId, restauranteId, fecha, hora, com
     tx.set(aforoRef, { ...aforo, ocupadas: ocupadas + 1, limite, retenidas });
     if (usaRetencion) espera().marcarConfirmadoTx(tx, restId, fecha, hora, uid);
 
-    return { id: nuevaRef.id, codigo, restauranteNombre: restaurante.nombre, fecha, hora, comensales: n };
+    return { id: nuevaRef.id, codigo, restauranteNombre: restaurante.nombre, fecha, hora, comensales: n, pedido: pedidoFijo };
   });
 
   logger.info({ uid, reservaId: result.id, restaurantId: restId, fecha, hora }, "Reservation created");
@@ -222,12 +227,12 @@ async function listarReservas(uid, { estado } = {}) {
     let query = db.collection("reservas").where("uid", "==", uid).orderBy("fecha", "desc");
     if (estado) query = query.where("estado", "==", estado);
     const snapshot = await query.limit(100).get();
-    return snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+    return snapshot.docs.map((d) => ({ id: d.id, ...d.data(), pedido: d.data().pedido ?? null, presentadaEn: d.data().presentadaEn ?? null }));
   } catch (err) {
     if (!isIndexError(err)) throw err;
     // Fallback sin orderBy: evita FAILED_PRECONDITION si el índice compuesto aún no está desplegado.
     const snapshot = await db.collection("reservas").where("uid", "==", uid).limit(200).get();
-    let list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+    let list = snapshot.docs.map((d) => ({ id: d.id, ...d.data(), pedido: d.data().pedido ?? null, presentadaEn: d.data().presentadaEn ?? null }));
     if (estado) list = list.filter((r) => r.estado === estado);
     list.sort((a, b) => `${b.fecha || ""} ${b.hora || ""}`.localeCompare(`${a.fecha || ""} ${a.hora || ""}`));
     return list.slice(0, 100);
@@ -406,3 +411,24 @@ module.exports = {
   subirTicket,
   actualizarEstado,
 };
+
+// Consultas por igualdad: compatibles con reservas antiguas que solo guardaban
+// uno de los dos alias. Rango y orden se aplican tras deduplicar, sin índice nuevo.
+async function delRestaurante(restauranteId, desde, hasta) {
+  const snaps = await Promise.all(["restaurantId", "restauranteId"].map(campo =>
+    db.collection("reservas").where(campo, "==", restauranteId).get()));
+  const docs = [...new Map(snaps.flatMap(s => s.docs).map(d => [d.id, d])).values()]
+    .filter(d => d.data().fecha >= desde && d.data().fecha <= hasta);
+  const nombres = new Map();
+  await Promise.all([...new Set(docs.map(d => d.data().uid).filter(Boolean))].map(async uid => {
+    const perfil = await db.collection("usuarios").doc(uid).get();
+    nombres.set(uid, perfil.exists && typeof perfil.data().nombre === "string" ? perfil.data().nombre : "");
+  }));
+  return docs.map(doc => {
+    const d = doc.data();
+    return { id: doc.id, codigo: d.codigo, fecha: d.fecha, hora: d.hora, comensales: d.comensales,
+      estado: d.estado, comentarios: d.comentarios ?? "", presentadaEn: d.presentadaEn ?? null,
+      cliente: { nombre: nombres.get(d.uid) || "" }, pedido: d.pedido ?? null };
+  }).sort((a, b) => `${a.fecha} ${a.hora} ${a.id}`.localeCompare(`${b.fecha} ${b.hora} ${b.id}`));
+}
+module.exports.delRestaurante = delRestaurante;
