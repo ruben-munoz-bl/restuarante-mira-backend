@@ -3863,3 +3863,6 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm test
 `test/reglasReserva.emulator.test.js` carga y compila el fichero real de reglas y prueba lecturas, creación, actualización y borrado con titular, otro cliente, empresa, admin y anónimo. Se omite si no se configura emulador; el host se restringe a localhost y el proyecto es `demo-mira-m04`. Los otros tests usan Firebase/proveedores simulados. Validación de esta entrega: 446/446, sin omisiones, con emulador Firestore 1.19.8 y Java 21 (Node 22.23.3).
 
 Orden de revisión/unión: `feat/M02-carta` → `feat/M03-pedido-reserva` → `feat/M04-checkin-puntos` (ramas acumulativas). Claude revisa antes de unir. Despliegue del backend y reglas queda fuera de esta entrega.
+
+## M13 · Fecha de alta para «Nuevos» (M07)
+`GET /v1/restaurants?all=1` y `/v1/restaurants/mapa` incluyen `creado: string ISO | null`. Se normaliza el campo real `creado` (Timestamp/Date/ISO), también en la caché `_catalogo`; una caché anterior sin ese campo se regenera. No se inventan fechas para Yelp ni se usa la fecha de importación como alta. No hay backfill. La aprobación de propuestas por admin ya guarda el alta real del restaurante; test de ese flujo incluido.
