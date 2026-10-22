@@ -130,3 +130,27 @@ test("flujo completo: reservar con carta, obtener QR, escanear y consultar pedid
   assert.ok(despues.presentadaEn); assert.equal(despues.qr, null); assert.equal(despues.estado, "pendiente");
   assert.equal((await scan(antes.qr)).status, 409);
 });
+
+test("presentada no se puede cancelar: titular/admin reciben409 sin perder aforo ni puntos", async () => {
+  seed("aforo", `r1_${hoyMadrid()}_13:00`, { ocupadas: 1, limite: 6 });
+  assert.equal((await scan()).status, 200);
+  for (const token of [tokens.cliente, tokens.admin]) {
+    const res = await request(app).put("/v1/reservations/res1/cancel").set(auth(token));
+    assert.equal(res.status, 409); assert.equal(res.body.error, "CONFLICT");
+  }
+  for (const token of [tokens.empresa, tokens.admin]) {
+    const res = await request(app).put("/v1/dashboard/reservations/res1/status").set(auth(token)).send({ status: "cancelada" });
+    assert.equal(res.status, 409); assert.equal(res.body.error, "CONFLICT");
+  }
+  assert.equal(store.get("reservas").get("res1").estado, "confirmada");
+  assert.equal(store.get("aforo").get(`r1_${hoyMadrid()}_13:00`).ocupadas, 1);
+  assert.equal(store.get("usuarios").get("u-cli").saldoPuntos, 50);
+});
+
+test("cancelación y check-in simultáneos se excluyen mutuamente", async () => {
+  const [llegada, cancelada] = await Promise.all([scan(), request(app).put("/v1/reservations/res1/cancel").set(auth(tokens.cliente))]);
+  assert.deepEqual([llegada.status, cancelada.status].sort(), [200, 409]);
+  const r = store.get("reservas").get("res1");
+  assert.ok((r.presentadaEn && r.estado !== "cancelada") || (!r.presentadaEn && r.estado === "cancelada"));
+  assert.equal(store.get("usuarios").get("u-cli").saldoPuntos, r.presentadaEn ? 50 : 0);
+});

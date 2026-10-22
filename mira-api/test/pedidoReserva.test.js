@@ -98,3 +98,31 @@ test("cancelar con pedido mantiene copia sin otorgar puntos ni ofrecer edición"
   assert.equal(guardada.estado, "cancelada"); assert.deepEqual(guardada.pedido, res.body.pedido);
   assert.equal(store.get("usuarios").get("u-cli").saldoPuntos, 0);
 });
+
+test("delRestaurante exige rango en ambas consultas y no lee perfiles fuera de fecha", async () => {
+  const { mockDb } = require("./helpers/mockFirebase");
+  const svc = require("../src/modules/reservations/service");
+  const original = mockDb.collection.bind(mockDb); const consultas = []; const perfiles = [];
+  seed("reservas", "vieja", { restaurantId: "r1", fecha: "2000-01-01", uid: "u-cli2", hora: "12:00" });
+  seed("reservas", "actual", { restauranteId: "r1", fecha: hoyMadrid(), uid: "u-cli", hora: "13:00" });
+  test.mock.method(mockDb, "collection", nombre => {
+    const col = original(nombre);
+    if (nombre === "usuarios") return { ...col, doc(id) { perfiles.push(id); return col.doc(id); } };
+    if (nombre !== "reservas") return col;
+    const condiciones = [];
+    const wrap = q => ({
+      where(f, op, valor) { condiciones.push([f, op, valor]); return wrap(q.where(f, op, valor)); },
+      orderBy(...args) { assert.deepEqual(args, ["fecha", "desc"]); return wrap(q.orderBy(...args)); },
+      async get() {
+        assert.deepEqual(condiciones.slice(1), [["fecha", ">=", hoyMadrid()], ["fecha", "<=", hoyMadrid()]]);
+        consultas.push(condiciones[0]); return q.get();
+      },
+    }); return wrap(col);
+  });
+  try {
+    const lista = await svc.delRestaurante("r1", hoyMadrid(), hoyMadrid());
+    assert.deepEqual(lista.map(r => r.id), ["actual"]);
+    assert.deepEqual(consultas, [["restaurantId", "==", "r1"], ["restauranteId", "==", "r1"]]);
+    assert.deepEqual(perfiles, ["u-cli"]);
+  } finally { test.mock.restoreAll(); }
+});

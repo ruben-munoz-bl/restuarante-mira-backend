@@ -137,6 +137,7 @@ async function cancelarReserva(reservaId, uid, esAdmin = false) {
     const r = snap.data();
     if (r.estado === "cancelada") throw errorDe(409, "CONFLICT", "Ya estaba cancelada.");
     if (!esAdmin && r.uid !== uid) throw errorDe(403, "FORBIDDEN", "No autorizado");
+    if (r.presentadaEn) throw errorDe(409, "CONFLICT", "La reserva ya se ha presentado y no se puede cancelar.");
 
     const aforoRef = db.collection("aforo").doc(aforoId(r.restaurantId, r.fecha, r.hora));
     const aforoSnap = await tx.get(aforoRef);
@@ -341,6 +342,7 @@ async function actualizarEstado(reservaId, status, { precioBase } = {}) {
     const snap = await tx.get(reservaRef);
     if (!snap.exists) throw errorDe(404, "NOT_FOUND", "Reserva no encontrada");
     const actual = { id: snap.id, ...snap.data() };
+    if (status === "cancelada" && actual.presentadaEn) throw errorDe(409, "CONFLICT", "La reserva ya se ha presentado y no se puede cancelar.");
     const update = { estado: status, updatedAt: new Date() };
     if (status === "completada") {
       update.asistio = true;
@@ -412,13 +414,13 @@ module.exports = {
   actualizarEstado,
 };
 
-// Consultas por igualdad: compatibles con reservas antiguas que solo guardaban
-// uno de los dos alias. Rango y orden se aplican tras deduplicar, sin índice nuevo.
+// Compatibilidad con ambos aliases. Cada consulta acota el rango en Firestore;
+// usa los índices existentes de restaurantId/restauranteId + fecha DESC.
 async function delRestaurante(restauranteId, desde, hasta) {
   const snaps = await Promise.all(["restaurantId", "restauranteId"].map(campo =>
-    db.collection("reservas").where(campo, "==", restauranteId).get()));
-  const docs = [...new Map(snaps.flatMap(s => s.docs).map(d => [d.id, d])).values()]
-    .filter(d => d.data().fecha >= desde && d.data().fecha <= hasta);
+    db.collection("reservas").where(campo, "==", restauranteId)
+      .where("fecha", ">=", desde).where("fecha", "<=", hasta).orderBy("fecha", "desc").get()));
+  const docs = [...new Map(snaps.flatMap(s => s.docs).map(d => [d.id, d])).values()];
   const nombres = new Map();
   await Promise.all([...new Set(docs.map(d => d.data().uid).filter(Boolean))].map(async uid => {
     const perfil = await db.collection("usuarios").doc(uid).get();
