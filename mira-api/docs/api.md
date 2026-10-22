@@ -3863,3 +3863,14 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm test
 `test/reglasReserva.emulator.test.js` carga y compila el fichero real de reglas y prueba lecturas, creación, actualización y borrado con titular, otro cliente, empresa, admin y anónimo. Se omite si no se configura emulador; el host se restringe a localhost y el proyecto es `demo-mira-m04`. Los otros tests usan Firebase/proveedores simulados. Validación de esta entrega: 446/446, sin omisiones, con emulador Firestore 1.19.8 y Java 21 (Node 22.23.3).
 
 Orden de revisión/unión: `feat/M02-carta` → `feat/M03-pedido-reserva` → `feat/M04-checkin-puntos` (ramas acumulativas). Claude revisa antes de unir. Despliegue del backend y reglas queda fuera de esta entrega.
+
+## M14 · Siembra local de cartas simuladas
+`node scripts/sembrarCartas.js --project demo-mira-m14 --dry-run` valida y cuenta sin escribir; sin `--dry-run`, crea únicamente cartas ausentes. Requiere `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` y un proyecto explícito `demo-...`; esta entrega rechaza producción y hosts remotos antes de inicializar Firebase, incluso en dry-run. No usa credenciales reales.
+```
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/sembrarCartas.js --project demo-mira-m14 --dry-run
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/sembrarCartas.js --project demo-mira-m14
+```
+- Recorre restaurants por páginas de 100 y omite `_catalogo`. Antes de crear comprueba de nuevo, en transacción, que no existe carta y que sigue existiendo el restaurante. Conserva toda carta existente, también las simuladas ya sembradas y las editadas por M09. Una segunda ejecución no vuelve a escribirlas.
+- Copia autocontenida de `cartaDelLocal`/`cartaLibro` del frontend (`src/models/restaurantModel.js`, revisión de archivo `cf493de`, SHA-256 en scripts/lib/cartaSimulada.js). Mismas categorías, nombres, descripciones, precios y alérgenos; IDs deterministas, `disponible:true`, `foto:null`. No depende del frontend al ejecutar y pasa el schema de M02.
+- Fixtures de 72 combinaciones generadas desde el modelo original, no desde el script del backend. Las pruebas contrastan categorías/platos/precios y alérgenos, y verifican no sobrescribir cartas, paginación y carreras con el editor.
+- `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm test`: 452/452, sin omisiones (incluye reglas M04 y CLI real dry-run → siembra → repetición → GET /v1/cartas/:id). Java21, Firestore1.19.8, proyecto demo-mira-m14. Sin ejecución en producción, unión ni despliegue.
