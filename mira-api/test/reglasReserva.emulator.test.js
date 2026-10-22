@@ -22,7 +22,7 @@ async function call(method, ruta, uid, fields) {
 }
 const fields = { uid: { stringValue: "cliente" }, fecha: { stringValue: "2026-10-22" }, hora: { stringValue: "13:00" }, comensales: { integerValue: "2" } };
 
-test("M04 reglas Firestore: reservas, cartas y movimientos", { skip: !host && "Requiere emulador local de Firestore" }, async t => {
+test("Reglas Firestore (las publicadas): nadie accede directamente", { skip: !host && "Requiere emulador local de Firestore" }, async t => {
   assert.match(host, /^(?:127\.0\.0\.1|localhost):\d+$/, "Solo se admite el emulador local");
   const content = fs.readFileSync(path.join(__dirname, "../firestore.rules"), "utf8");
   const compile = await fetch(`${base}/emulator/v1/projects/${project}:securityRules`, {
@@ -37,9 +37,9 @@ test("M04 reglas Firestore: reservas, cartas y movimientos", { skip: !host && "R
   assert.equal((await call("PATCH", "cartas/r1", "owner", { restauranteId: { stringValue: "r1" } })).status, 200);
   assert.equal((await call("PATCH", "puntos_movimientos/m1", "owner", { uid: { stringValue: "cliente" }, puntos: { integerValue: "50" } })).status, 200);
 
-  await t.test("reserva: solo titular/admin leen, ningún cliente escribe ni borra", async () => {
-    for (const [uid, status] of [["cliente", 200], ["admin", 200], ["empresa", 403], ["ajeno", 403], [null, 403]]) {
-      assert.equal((await call("GET", "reservas/res1", uid)).status, status, `leer ${uid}`);
+  await t.test("reserva: ningún rol lee, escribe ni borra directamente", async () => {
+    for (const uid of ["cliente", "admin", "empresa", "ajeno", null]) {
+      assert.equal((await call("GET", "reservas/res1", uid)).status, 403, `leer ${uid}`);
       assert.equal((await call("PATCH", `reservas/nueva_${uid}`, uid, fields)).status, 403, `crear ${uid}`);
       for (const campo of ["pedido", "presentadaEn", "puntosPedido", "uid"]) {
         assert.equal((await call("PATCH", `reservas/res1?updateMask.fieldPaths=${campo}`, uid, { [campo]: { stringValue: "alterado" } })).status, 403, `editar ${campo} ${uid}`);
@@ -55,12 +55,20 @@ test("M04 reglas Firestore: reservas, cartas y movimientos", { skip: !host && "R
       assert.equal((await call("DELETE", "cartas/r1", uid)).status, 403);
     }
   });
-  await t.test("movimientos: solo titular/admin leen; create/update/delete siempre denegados", async () => {
-    for (const [uid, status] of [["cliente", 200], ["admin", 200], ["empresa", 403], ["ajeno", 403], [null, 403]]) {
-      assert.equal((await call("GET", "puntos_movimientos/m1", uid)).status, status);
+  await t.test("movimientos: ningún rol lee, crea, edita ni borra directamente", async () => {
+    for (const uid of ["cliente", "admin", "empresa", "ajeno", null]) {
+      assert.equal((await call("GET", "puntos_movimientos/m1", uid)).status, 403);
       assert.equal((await call("PATCH", `puntos_movimientos/nuevo_${uid}`, uid, fields)).status, 403);
       assert.equal((await call("PATCH", "puntos_movimientos/m1", uid, fields)).status, 403);
       assert.equal((await call("DELETE", "puntos_movimientos/m1", uid)).status, 403);
+    }
+  });
+  await t.test("resto de colecciones: también cerradas (perfil propio incluido)", async () => {
+    for (const ruta of ["usuarios/cliente", "restaurants/r1", "aforo/a1", "tickets/t1", "finanzas_restaurante/r1", "invitaciones/i1", "promociones/p1"]) {
+      for (const uid of ["cliente", "admin", "empresa", null]) {
+        assert.equal((await call("GET", ruta, uid)).status, 403, `leer ${ruta} ${uid}`);
+        assert.equal((await call("PATCH", ruta, uid, { x: { stringValue: "y" } })).status, 403, `escribir ${ruta} ${uid}`);
+      }
     }
   });
 });
