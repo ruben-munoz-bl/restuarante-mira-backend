@@ -87,16 +87,14 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // M04: reservas y cartas solo se escriben a través de la API (Admin SDK).
     match /reservas/{id} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn()
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.fecha is string
-        && request.resource.data.hora is string
-        && request.resource.data.comensales >= 1
-        && request.resource.data.comensales <= 10;
-      allow update: if isOwner(resource.data.uid) || isAdmin() || isEmpresa();
-      allow delete: if isOwner(resource.data.uid) || isAdmin();
+      allow read: if isOwner(resource.data.uid) || isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /cartas/{id} {
+      allow read, write: if false;
     }
 
     match /aforo/{id} {
@@ -145,7 +143,7 @@ service cloud.firestore {
 
     match /puntos_movimientos/{id} {
       allow read: if isOwner(resource.data.uid) || isAdmin();
-      allow create: if isSignedIn();
+      allow create: if false;
       allow update: if false;
       allow delete: if false;
     }

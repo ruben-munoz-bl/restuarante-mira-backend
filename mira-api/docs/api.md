@@ -3828,3 +3828,41 @@ Para PC 2: promociones empieza apagado hasta leer un `true` del servidor; nunca 
 ### Refrescar cachés (admin)
 
 `POST /v1/dashboard/cache/refrescar` (solo admin, sin cuerpo) → `200 { ok: true }`. Vacía el catálogo de restaurantes (y marca `_catalogo` como obsoleto), la caché de 60 s de `ofertas/cerca` y la del panel de admin. Lo usa el botón «Actualizar datos» del panel Ops.
+
+## Reserva con carta · M02
+Contrato: bóveda `Proyecto/Contratos API.md`, M01 y precisiones del 2026-10-22.
+- `GET /v1/cartas/:restauranteId`: público; devuelve la carta con platos disponibles y categorías no vacías; 404 sin restaurante/carta.
+- `GET /v1/cartas/:restauranteId/editar`: empresa dueña o admin; carta completa o `{ restauranteId, categorias: [], actualizada: null }` si no hay carta.
+- `PUT /v1/cartas/:restauranteId`: empresa dueña o admin; sustituye `{ categorias: [{ id?, nombre, platos: [{ id?, nombre, descripcion, precio, foto?, alergenos, disponible }] }] }`. Devuelve carta completa e IDs generados. No modifica reservas.
+- 1–30 categorías, 0–60 platos/categoría, máximo 300 platos. IDs `^[A-Za-z0-9_-]{1,40}$`, categorías únicas y platos únicos en toda la carta. Precio EUR 0.01–999.99 con hasta dos decimales; foto HTTPS o null. Alérgenos: gluten, lactosa, huevo, frutos_secos, marisco, pescado, soja.
+- Errores: 400 VALIDATION_ERROR, 401 MISSING_TOKEN/INVALID_TOKEN, 403 FORBIDDEN, 404 NOT_FOUND. Las reglas Firestore se cierran y prueban en M04, sin despliegue.
+
+### M03 · Pedido fijo en la reserva
+`POST /v1/reservations` acepta `pedido?: { lineas: [{ platoId, cantidad }] }` (1–30 líneas únicas, cantidad entera 1–20). Lee la carta dentro de la transacción de reserva y copia nombre, precio, cantidad y subtotal; calcula en céntimos. Añade `pedido` a la respuesta 201. No otorga puntos ni admite nombre/precio/total aportados por el cliente.
+- Sin carta: 400 `{ error: "SIN_CARTA" }`; plato ausente, ajeno o agotado: 400 `{ error: "PLATO_NO_DISPONIBLE", platoId }`. Fallos no consumen aforo.
+- `GET /v1/reservations` incluye `pedido` y `presentadaEn` (null en registros antiguos). No hay endpoint de edición; cancelar conserva la copia como historial de la reserva cancelada.
+- `GET /v1/reservations/restaurante?restauranteId=...&desde=...&hasta=...`: empresa dueña o admin, listado con nombre del perfil y pedido, sin UID/email. Ambos días incluidos; desde=hoy Madrid y hasta=desde por defecto, diferencia máxima 31 días. Fechas inválidas/invertidas → 400. Consultas por ambos alias con rango de fecha en Firestore, deduplicación y orden por fecha/hora. Usa los índices existentes restaurantId/fecha DESC y restauranteId/fecha DESC; sin índice nuevo.
+
+### M04 · QR de reserva y check-in
+- `GET /v1/reservations` añade `qr: "r1.<reservaId>.<firma>"` solo en reservas no canceladas, no presentadas y con fecha de hoy/futura (Madrid). La firma es HMAC-SHA256 base64url de `r1.<reservaId>`. El `codigo` visible se conserva.
+- `RESERVAS_QR_SECRET` es opcional y usa `VISITAS_SECRET` si no se configura. El secreto efectivo debe tener al menos 32 caracteres. Sin configuración válida, el listado sigue devolviendo todas las reservas con `qr: null`; validar devuelve 503 `RESERVAS_QR_NO_CONFIGURADO`. No guardar valores reales en Git.
+- `POST /v1/reservations/checkin` (empresa dueña o admin), body estricto `{ qr }`. Respuesta `{ reserva: { id, codigo, fecha, hora, comensales, presentadaEn, pedido }, cliente: { nombre }, puntosPedido: 50 | 0 }`, sin UID/email.
+- Marca `presentadaEn` y `puntosPedido` sin cambiar `estado`, `ticketId` ni `puntosGenerados`. Si hay pedido, saldo, totalAcumulado y movimiento `pedido_anticipado_<reservaId>` (tipo `pedido_anticipado`) se escriben con el marcador de llegada en la misma transacción. No hay pago online.
+- Errores: 400 QR_INVALIDO; 401 MISSING_TOKEN/INVALID_TOKEN; 403 FORBIDDEN (rol) u OTRO_RESTAURANTE; 404 NOT_FOUND; 409 QR_USADO, RESERVA_CANCELADA o FUERA_DE_FECHA. El día se comprueba dentro de la transacción en Europe/Madrid. G08 conserva QR `v1.` y sus rutas sin cambios.
+- Reglas preparadas, **sin desplegar**: reservas solo lectura del titular/admin, escrituras directas denegadas; cartas sin acceso directo (se sirven por API); puntos_movimientos con create/update/delete denegados, lecturas del titular/admin.
+
+#### Pruebas locales de reglas
+Requieren Java y Firebase CLI; usar siempre proyecto demo, sin credenciales de producción:
+```
+firebase emulators:exec --only firestore --project demo-mira-m04 'npm test'
+```
+Con un emulador ya iniciado en localhost:
+```
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm test
+```
+`test/reglasReserva.emulator.test.js` carga y compila el fichero real de reglas y prueba lecturas, creación, actualización y borrado con titular, otro cliente, empresa, admin y anónimo. Se omite si no se configura emulador; el host se restringe a localhost y el proyecto es `demo-mira-m04`. Los otros tests usan Firebase/proveedores simulados. Validación de esta entrega: 446/446, sin omisiones, con emulador Firestore 1.19.8 y Java 21 (Node 22.23.3).
+
+Orden de revisión/unión: `feat/M02-carta` → `feat/M03-pedido-reserva` → `feat/M04-checkin-puntos` (ramas acumulativas). Claude revisa antes de unir. Despliegue del backend y reglas queda fuera de esta entrega.
+
+### Menores de revisión M04
+Cancelar una reserva con presentadaEn devuelve 409 CONFLICT, también para admin y por el cambio de estado del panel, sin liberar aforo ni retirar puntos. El listado del restaurante filtra desde/hasta en ambas consultas Firestore antes de leer perfiles; conserva el rango inclusivo y el orden de la respuesta. Sin cambios al contrato de M07 ni despliegues.

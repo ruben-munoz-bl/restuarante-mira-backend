@@ -61,6 +61,10 @@ function makeQuery(collection, ops = {}) {
       items = items.filter((d) => {
         const val = d.data()[w.field];
         if (w.op === "==") return val === w.value;
+        if (w.op === ">=") return val != null && val >= w.value;
+        if (w.op === "<=") return val != null && val <= w.value;
+        if (w.op === ">") return val != null && val > w.value;
+        if (w.op === "<") return val != null && val < w.value;
         if (w.op === "array-contains") return Array.isArray(val) && val.includes(w.value);
         return true;
       });

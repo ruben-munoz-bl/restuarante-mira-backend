@@ -49,6 +49,7 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+app.use("/v1/cartas", require("./modules/cartas/routes"));
 app.use("/v1/reservations", require("./modules/reservations/routes"));
 app.use("/v1/points", require("./modules/points/routes"));
 app.use("/v1/tickets", require("./modules/tickets/routes"));
