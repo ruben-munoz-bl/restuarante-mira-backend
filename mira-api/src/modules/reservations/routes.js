@@ -10,6 +10,7 @@ const { precioSchema, ticketSchema } = require("../../middlewares/businessSchema
 const { documentoId, fechaCalendario, horaReserva } = require("../../middlewares/inputSchemas");
 const { pedidoSchema, listadoSchema } = require("./pedido");
 const { comprobarRestaurante } = require("../../middlewares/ownership");
+const { checkin, paraCliente } = require("./checkin");
 const router = Router();
 
 const crearReservaSchema = z.object({
@@ -64,6 +65,11 @@ router.post("/", verifyFirebaseAuth, rateLimit(60000, 20), validate(crearReserva
   }
 });
 
+router.post("/checkin", verifyFirebaseAuth, authorize("empresa", "admin"), rateLimit(60000, 60), validate(z.object({ qr: z.string().max(500) }).strict()), async (req, res, next) => {
+  try { res.json(await checkin(req.validated.qr, req.user)); }
+  catch (err) { next(err); }
+});
+
 router.get("/restaurante", verifyFirebaseAuth, authorize("empresa", "admin"), validate(listadoSchema, "query"), async (req, res, next) => {
   try {
     const { restauranteId, desde, hasta } = req.validated;
@@ -75,7 +81,7 @@ router.get("/restaurante", verifyFirebaseAuth, authorize("empresa", "admin"), va
 router.get("/", verifyFirebaseAuth, async (req, res, next) => {
   try {
     const reservas = await reservationService.listarReservas(req.user.uid, { estado: req.query.estado });
-    res.json({ data: reservas });
+    res.json({ data: reservas.map(paraCliente) });
   } catch (err) {
     next(err);
   }

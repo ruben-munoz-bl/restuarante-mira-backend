@@ -3842,3 +3842,24 @@ Contrato: bóveda `Proyecto/Contratos API.md`, M01 y precisiones del 2026-10-22.
 - Sin carta: 400 `{ error: "SIN_CARTA" }`; plato ausente, ajeno o agotado: 400 `{ error: "PLATO_NO_DISPONIBLE", platoId }`. Fallos no consumen aforo.
 - `GET /v1/reservations` incluye `pedido` y `presentadaEn` (null en registros antiguos). No hay endpoint de edición; cancelar conserva la copia como historial de la reserva cancelada.
 - `GET /v1/reservations/restaurante?restauranteId=...&desde=...&hasta=...`: empresa dueña o admin, listado con nombre del perfil y pedido, sin UID/email. Ambos días incluidos; desde=hoy Madrid y hasta=desde por defecto, diferencia máxima 31 días. Fechas inválidas/invertidas → 400. Consultas por igualdad a ambos alias de restaurante, deduplicación y filtro/orden por fecha/hora; sin índice compuesto nuevo.
+
+### M04 · QR de reserva y check-in
+- `GET /v1/reservations` añade `qr: "r1.<reservaId>.<firma>"` solo en reservas no canceladas, no presentadas y con fecha de hoy/futura (Madrid). La firma es HMAC-SHA256 base64url de `r1.<reservaId>`. El `codigo` visible se conserva.
+- `RESERVAS_QR_SECRET` es opcional y usa `VISITAS_SECRET` si no se configura. El secreto efectivo debe tener al menos 32 caracteres. Sin configuración válida, el listado sigue devolviendo todas las reservas con `qr: null`; validar devuelve 503 `RESERVAS_QR_NO_CONFIGURADO`. No guardar valores reales en Git.
+- `POST /v1/reservations/checkin` (empresa dueña o admin), body estricto `{ qr }`. Respuesta `{ reserva: { id, codigo, fecha, hora, comensales, presentadaEn, pedido }, cliente: { nombre }, puntosPedido: 50 | 0 }`, sin UID/email.
+- Marca `presentadaEn` y `puntosPedido` sin cambiar `estado`, `ticketId` ni `puntosGenerados`. Si hay pedido, saldo, totalAcumulado y movimiento `pedido_anticipado_<reservaId>` (tipo `pedido_anticipado`) se escriben con el marcador de llegada en la misma transacción. No hay pago online.
+- Errores: 400 QR_INVALIDO; 401 MISSING_TOKEN/INVALID_TOKEN; 403 FORBIDDEN (rol) u OTRO_RESTAURANTE; 404 NOT_FOUND; 409 QR_USADO, RESERVA_CANCELADA o FUERA_DE_FECHA. El día se comprueba dentro de la transacción en Europe/Madrid. G08 conserva QR `v1.` y sus rutas sin cambios.
+- Reglas preparadas, **sin desplegar**: reservas solo lectura del titular/admin, escrituras directas denegadas; cartas sin acceso directo (se sirven por API); puntos_movimientos con create/update/delete denegados, lecturas del titular/admin.
+
+#### Pruebas locales de reglas
+Requieren Java y Firebase CLI; usar siempre proyecto demo, sin credenciales de producción:
+```
+firebase emulators:exec --only firestore --project demo-mira-m04 'npm test'
+```
+Con un emulador ya iniciado en localhost:
+```
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm test
+```
+`test/reglasReserva.emulator.test.js` carga y compila el fichero real de reglas y prueba lecturas, creación, actualización y borrado con titular, otro cliente, empresa, admin y anónimo. Se omite si no se configura emulador; el host se restringe a localhost y el proyecto es `demo-mira-m04`. Los otros tests usan Firebase/proveedores simulados. Validación de esta entrega: 446/446, sin omisiones, con emulador Firestore 1.19.8 y Java 21 (Node 22.23.3).
+
+Orden de revisión/unión: `feat/M02-carta` → `feat/M03-pedido-reserva` → `feat/M04-checkin-puntos` (ramas acumulativas). Claude revisa antes de unir. Despliegue del backend y reglas queda fuera de esta entrega.
