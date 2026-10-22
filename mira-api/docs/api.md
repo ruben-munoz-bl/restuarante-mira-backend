@@ -3871,3 +3871,13 @@ Cancelar una reserva con presentadaEn devuelve 409 CONFLICT, también para admin
 ## M12 · Más reservados (M07)
 `GET /v1/restaurants/mas-reservados?dias=7&limit=8` es público. `dias` entero 1–30 (def.7), `limit` 1–20 (def.8); inválidos → 400 VALIDATION_ERROR. Devuelve `{ data: [{ id, reservas }] }`, recuento descendente y desempate por ID. Cuenta una reserva por documento con fecha entre hoy−(dias−1) y hoy, ambos incluidos, día Europe/Madrid; excluye únicamente estado `cancelada`. No incluye reservas futuras ni datos del cliente.
 La consulta Firestore aplica ambos límites de fecha y proyecta solo los aliases del restaurante y estado; no carga todo el histórico ni perfiles. Usa índice simple de fecha (sin índice compuesto nuevo). Caché en memoria 30 s por rango; cambia de clave al cambiar de día en Madrid. Hasta 30 s para reflejar reservas/cancelaciones nuevas. Sin despliegues.
+## M14 · Siembra local de cartas simuladas
+`node scripts/sembrarCartas.js --project demo-mira-m14 --dry-run` valida y cuenta sin escribir; sin `--dry-run`, crea únicamente cartas ausentes. Requiere `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` y un proyecto explícito `demo-...`; esta entrega rechaza producción y hosts remotos antes de inicializar Firebase, incluso en dry-run. No usa credenciales reales.
+```
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/sembrarCartas.js --project demo-mira-m14 --dry-run
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/sembrarCartas.js --project demo-mira-m14
+```
+- Recorre restaurants por páginas de 100 y omite `_catalogo`. Antes de crear comprueba de nuevo, en transacción, que no existe carta y que sigue existiendo el restaurante. Conserva toda carta existente, también las simuladas ya sembradas y las editadas por M09. Una segunda ejecución no vuelve a escribirlas.
+- Copia autocontenida de `cartaDelLocal`/`cartaLibro` del frontend (`src/models/restaurantModel.js`, revisión de archivo `cf493de`, SHA-256 en scripts/lib/cartaSimulada.js). Mismas categorías, nombres, descripciones, precios y alérgenos; IDs deterministas, `disponible:true`, `foto:null`. No depende del frontend al ejecutar y pasa el schema de M02.
+- Fixtures de 72 combinaciones generadas desde el modelo original, no desde el script del backend. Las pruebas contrastan categorías/platos/precios y alérgenos, y verifican no sobrescribir cartas, paginación y carreras con el editor.
+- `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm test`: 452/452, sin omisiones (incluye reglas M04 y CLI real dry-run → siembra → repetición → GET /v1/cartas/:id). Java21, Firestore1.19.8, proyecto demo-mira-m14. Sin ejecución en producción, unión ni despliegue.
