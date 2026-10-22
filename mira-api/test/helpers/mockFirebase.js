@@ -48,6 +48,7 @@ function makeQuery(collection, ops = {}) {
     limit: ops.limit ?? null,
     startAfter: ops.startAfter || null,
     offset: ops.offset || 0,
+    select: ops.select || null,
   };
 
   function fieldValue(d, field) {
@@ -101,6 +102,7 @@ function makeQuery(collection, ops = {}) {
     where(field, op, value) {
       return makeQuery(state.collection, { ...state, wheres: [...state.wheres, { field, op, value }] });
     },
+    select(...fields) { return makeQuery(state.collection, { ...state, select: fields }); },
     orderBy(field, dir = "asc") {
       return makeQuery(state.collection, { ...state, orderBys: [...state.orderBys, { field, dir }] });
     },
@@ -126,6 +128,7 @@ function makeQuery(collection, ops = {}) {
     async get() {
       let items = exec();
       if (state.offset) items = items.slice(state.offset);
+      if (state.select) items = items.map(d => ({ id: d.id, data: () => Object.fromEntries(state.select.filter(f => Object.hasOwn(d.data(), f)).map(f => [f, d.data()[f]])) }));
       return {
         empty: items.length === 0,
         size: items.length,
