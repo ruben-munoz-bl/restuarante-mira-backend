@@ -5,7 +5,14 @@ const { validate } = require("../../middlewares/validate");
 const restaurantService = require("./service");
 const { urlFotoGoogle } = require("./fotoGoogle");
 
+const { rankingSchema, masReservados } = require("./masReservados");
 const router = Router();
+
+// Ruta literal antes de /:id; pública y solo con agregados.
+router.get("/mas-reservados", validate(rankingSchema, "query"), async (req, res, next) => {
+  try { res.json({ data: await masReservados(req.validated) }); }
+  catch (err) { next(err); }
+});
 
 router.get("/", optionalAuth, async (req, res, next) => {
   try {

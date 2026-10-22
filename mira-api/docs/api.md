@@ -3863,3 +3863,7 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm test
 `test/reglasReserva.emulator.test.js` carga y compila el fichero real de reglas y prueba lecturas, creación, actualización y borrado con titular, otro cliente, empresa, admin y anónimo. Se omite si no se configura emulador; el host se restringe a localhost y el proyecto es `demo-mira-m04`. Los otros tests usan Firebase/proveedores simulados. Validación de esta entrega: 446/446, sin omisiones, con emulador Firestore 1.19.8 y Java 21 (Node 22.23.3).
 
 Orden de revisión/unión: `feat/M02-carta` → `feat/M03-pedido-reserva` → `feat/M04-checkin-puntos` (ramas acumulativas). Claude revisa antes de unir. Despliegue del backend y reglas queda fuera de esta entrega.
+
+## M12 · Más reservados (M07)
+`GET /v1/restaurants/mas-reservados?dias=7&limit=8` es público. `dias` entero 1–30 (def.7), `limit` 1–20 (def.8); inválidos → 400 VALIDATION_ERROR. Devuelve `{ data: [{ id, reservas }] }`, recuento descendente y desempate por ID. Cuenta una reserva por documento con fecha entre hoy−(dias−1) y hoy, ambos incluidos, día Europe/Madrid; excluye únicamente estado `cancelada`. No incluye reservas futuras ni datos del cliente.
+La consulta Firestore aplica ambos límites de fecha y proyecta solo los aliases del restaurante y estado; no carga todo el histórico ni perfiles. Usa índice simple de fecha (sin índice compuesto nuevo). Caché en memoria 30 s por rango; cambia de clave al cambiar de día en Madrid. Hasta 30 s para reflejar reservas/cancelaciones nuevas. Sin despliegues.
