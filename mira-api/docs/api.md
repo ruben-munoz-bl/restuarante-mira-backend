@@ -3828,3 +3828,11 @@ Para PC 2: promociones empieza apagado hasta leer un `true` del servidor; nunca 
 ### Refrescar cachés (admin)
 
 `POST /v1/dashboard/cache/refrescar` (solo admin, sin cuerpo) → `200 { ok: true }`. Vacía el catálogo de restaurantes (y marca `_catalogo` como obsoleto), la caché de 60 s de `ofertas/cerca` y la del panel de admin. Lo usa el botón «Actualizar datos» del panel Ops.
+
+## Reserva con carta · M02
+Contrato: bóveda `Proyecto/Contratos API.md`, M01 y precisiones del 2026-10-22.
+- `GET /v1/cartas/:restauranteId`: público; devuelve la carta con platos disponibles y categorías no vacías; 404 sin restaurante/carta.
+- `GET /v1/cartas/:restauranteId/editar`: empresa dueña o admin; carta completa o `{ restauranteId, categorias: [], actualizada: null }` si no hay carta.
+- `PUT /v1/cartas/:restauranteId`: empresa dueña o admin; sustituye `{ categorias: [{ id?, nombre, platos: [{ id?, nombre, descripcion, precio, foto?, alergenos, disponible }] }] }`. Devuelve carta completa e IDs generados. No modifica reservas.
+- 1–30 categorías, 0–60 platos/categoría, máximo 300 platos. IDs `^[A-Za-z0-9_-]{1,40}$`, categorías únicas y platos únicos en toda la carta. Precio EUR 0.01–999.99 con hasta dos decimales; foto HTTPS o null. Alérgenos: gluten, lactosa, huevo, frutos_secos, marisco, pescado, soja.
+- Errores: 400 VALIDATION_ERROR, 401 MISSING_TOKEN/INVALID_TOKEN, 403 FORBIDDEN, 404 NOT_FOUND. Las reglas Firestore se cierran y prueban en M04, sin despliegue.
