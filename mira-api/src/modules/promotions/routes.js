@@ -33,7 +33,7 @@ const crearPromoSchema = z.object({
 router.post("/", verifyFirebaseAuth, authorize("empresa", "admin"), validate(crearPromoSchema), async (req, res, next) => {
   try {
     await comprobarRestaurante(req.validated.restauranteId, req.user);
-    const result = await promotionService.crearPromocion({ uid: req.user.uid, ...req.validated });
+    const result = await promotionService.crearPromocion({ uid: req.user.uid, user: req.user, ...req.validated });
     res.status(201).json(result);
   } catch (err) {
     if (err.message.includes("No eres dueño")) return res.status(403).json({ error: "FORBIDDEN" });
@@ -41,6 +41,17 @@ router.post("/", verifyFirebaseAuth, authorize("empresa", "admin"), validate(cre
     next(err);
   }
 });
+
+const editarPromoSchema = z.object({
+  fechaFin: fechaPromocion.optional(),
+  presupuestoTotal: z.number().finite().positive().max(1000000).optional(),
+  estado: z.enum(["pausada", "finalizada"]).optional(),
+}).strict().refine(d => Object.keys(d).length > 0, { message: "Indica al menos un campo" });
+router.put("/:id", verifyFirebaseAuth, authorize("empresa", "admin"),
+  validate(z.object({ id: documentoId }), "params"), validate(editarPromoSchema), async (req, res, next) => {
+    try { res.json(await promotionService.editarPromocion(req.params.id, req.validated, req.user)); }
+    catch (err) { next(err); }
+  });
 
 router.get("/:id/stats", verifyFirebaseAuth, authorize("empresa", "admin"), documentoDelRestaurante("promociones"), async (req, res, next) => {
   try {

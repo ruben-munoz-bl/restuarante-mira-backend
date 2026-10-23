@@ -3881,3 +3881,13 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/sembrarCartas.js --project d
 - Copia autocontenida de `cartaDelLocal`/`cartaLibro` del frontend (`src/models/restaurantModel.js`, revisión de archivo `cf493de`, SHA-256 en scripts/lib/cartaSimulada.js). Mismas categorías, nombres, descripciones, precios y alérgenos; IDs deterministas, `disponible:true`, `foto:null`. No depende del frontend al ejecutar y pasa el schema de M02.
 - Fixtures de 72 combinaciones generadas desde el modelo original, no desde el script del backend. Las pruebas contrastan categorías/platos/precios y alérgenos, y verifican no sobrescribir cartas, paginación y carreras con el editor.
 - `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm test`: 452/452, sin omisiones (incluye reglas M04 y CLI real dry-run → siembra → repetición → GET /v1/cartas/:id). Java21, Firestore1.19.8, proyecto demo-mira-m14. Sin ejecución en producción, unión ni despliegue.
+
+## M15 · Edición de promociones
+`PUT /v1/promotions/:id`, Firebase Bearer, empresa propietaria o admin.
+Cuerpo parcial, al menos un campo: `{ fechaFin?, presupuestoTotal?, estado? }`.
+- `fechaFin`: YYYY-MM-DD (00:00 UTC) o ISO con zona, fecha real y no anterior a fechaInicio guardada.
+- `presupuestoTotal`: número >0 y ≤1.000.000, nunca inferior al gasto acumulado.
+- `estado`: únicamente `pausada` o `finalizada`. No permite activar ni cambiar restaurante, contadores, CPC o fechaInicio. Campos desconocidos: 400.
+Respuesta 200: `{ id, restauranteId, fechaFin: "ISO", presupuestoTotal, estado }` con los valores finales. Campos omitidos se conservan.
+Errores: 400 VALIDATION_ERROR, 401 MISSING_TOKEN/INVALID_TOKEN, 403 FORBIDDEN, 404 NOT_FOUND, 409 CONFLICT si al ampliar una campaña aún marcada activa se solapa con otra activa no caducada.
+`POST /v1/promotions` ignora las activas con fechaFin anterior al instante actual, sin borrarlas ni cambiar su histórico. Las futuras no caducadas también bloquean otra creación. El 409 usa CONFLICT. Altas y ediciones se serializan mediante transacción y `restaurants.promocionesVersion`; no requieren colección o índice nuevos. No hay DELETE ni reactivación por PUT.
