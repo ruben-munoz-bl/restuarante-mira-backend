@@ -6,6 +6,9 @@ const error = (status, code, message) => Object.assign(new Error(message), { sta
 const millis = v => v?.toMillis ? v.toMillis() : new Date(v).getTime();
 // Las campañas futuras también reservan la plaza; solo se ignoran las caducadas.
 const vigente = p => p.estado === "activa" && !(millis(p.fechaFin) < Date.now());
+// En curso: vigente, ya empezada y con presupuesto. Solo estas reciben interacciones y dan puntos.
+const enCurso = p => vigente(p) && !(millis(p.fechaInicio) > Date.now())
+  && (p.gastoAcumulado || 0) < (p.presupuestoTotal || Infinity);
 
 async function crearPromocion({ uid, user, restauranteId, tipo, fechaInicio, fechaFin, presupuestoTotal, cpc, puntosExtraPorReserva }) {
   await comprobarRestaurante(restauranteId, user || { uid, role: "empresa" });
@@ -75,22 +78,22 @@ async function getPromoActiva(restauranteId) {
   const snap = await db.collection("promociones")
     .where("restauranteId", "==", restauranteId)
     .where("estado", "==", "activa")
-    .limit(1)
     .get();
-  if (snap.empty) return null;
-  return { id: snap.docs[0].id, ...snap.docs[0].data() };
+  const doc = snap.docs.find(d => enCurso(d.data()));
+  return doc ? { id: doc.id, ...doc.data() } : null;
 }
 
+/** Devuelve false si la campaña ya no está en curso (se pausó o caducó tras elegirla). */
 async function registrarInteraccion(promoId, tipo) {
   const promoRef = db.collection("promociones").doc(promoId);
-  await db.runTransaction(async (tx) => {
+  return db.runTransaction(async (tx) => {
     const snap = await tx.get(promoRef);
-    if (!snap.exists) return;
+    if (!snap.exists || !enCurso(snap.data())) return false;
     const promo = snap.data();
     const update = {};
     if (tipo === "click") {
       update.clicks = (promo.clicks || 0) + 1;
-      update.gastoAcumulado = Math.round((promo.gastoAcumulado || 0) + (promo.cpc || 0.20) * 100) / 100;
+      update.gastoAcumulado = Math.round(((promo.gastoAcumulado || 0) + (promo.cpc || 0.20)) * 100) / 100;
     } else {
       update.views = (promo.views || 0) + 1;
     }
@@ -98,6 +101,7 @@ async function registrarInteraccion(promoId, tipo) {
       update.estado = "finalizada";
     }
     tx.update(promoRef, update);
+    return true;
   });
 }
 

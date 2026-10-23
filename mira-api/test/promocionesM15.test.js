@@ -39,3 +39,37 @@ test('dos altas concurrentes: solo una activa; pausar permite crear la siguiente
  await put({estado:'pausada'});
  const r=await Promise.all([post(),post()]); assert.deepEqual(r.map(x=>x.status).sort(),[201,409]);
 });
+
+test('IA conserva el rol admin y rechaza a una empresa ajena incluso si los argumentos dicen admin', async () => {
+ const { createPromotion } = require('../src/modules/ai/handlers/catalog');
+ const args = { ...body, restauranteId: 'r2', user: { uid: 'u-admin', role: 'admin' } };
+ await assert.rejects(createPromotion({ user: { uid: 'u-emp', role: 'empresa' } }, args), { status: 403 });
+ const result = await createPromotion({ user: { uid: 'u-admin', role: 'admin' } }, args);
+ assert.equal(store.get('promociones').get(result.id).restauranteId, 'r2');
+});
+
+test('una campaña caducada no recibe los clics de la nueva ni reduce el gasto acumulado', async () => {
+ seed('promociones', 'p1', { ...body, estado: 'activa', fechaFin: '2020-01-02', clicks: 5, gastoAcumulado: 20 });
+ const nueva = await post();
+ assert.equal(nueva.status, 201);
+ seed('promociones', nueva.body.id, { ...store.get('promociones').get(nueva.body.id), gastoAcumulado: 20 });
+ const r = await request(app).post('/v1/interactions').set('Authorization', `Bearer ${tokens.cliente}`).send({ restauranteId: 'r1', tipo: 'click' });
+ assert.equal(r.status, 201);
+ assert.equal(store.get('promociones').get('p1').clicks, 5);
+ assert.equal(store.get('promociones').get(nueva.body.id).clicks, 1);
+ assert.equal(store.get('promociones').get(nueva.body.id).gastoAcumulado, 20.2);
+});
+
+test('caducadas, futuras, pausadas y agotadas no dan puntos ni reciben interacciones', async () => {
+ const { registrarInteraccion } = require('../src/modules/promotions/service');
+ for (const cambio of [{ fechaFin: '2020-01-02' }, { fechaInicio: '2098-01-01' }, { estado: 'pausada' }, { gastoAcumulado: 100 }]) {
+  const promo = { ...body, estado: 'activa', clicks: 5, gastoAcumulado: 20, ...cambio };
+  seed('promociones', 'p1', promo);
+  const r = await request(app).post('/v1/interactions').set('Authorization', `Bearer ${tokens.cliente}`).send({ restauranteId: 'r1', tipo: 'click' });
+  assert.equal(r.status, 404, JSON.stringify(cambio));
+  assert.equal(r.body.error, 'NO_PROMO');
+  // La transacción vuelve a comprobar el estado aunque la selección ocurriera antes de pausar.
+  assert.equal(await registrarInteraccion('p1', 'click'), false);
+  assert.deepEqual(store.get('promociones').get('p1'), promo);
+ }
+});

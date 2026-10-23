@@ -15,7 +15,7 @@ async function registrarVista(uid, restauranteId) {
     .get();
   if (!existeVista.empty) return { yaVisto: true, puntos: 0 };
 
-  await registrarInteraccion(promo.id, "view");
+  if (!(await registrarInteraccion(promo.id, "view"))) return { sinPromo: true };
   const result = await addPuntos(uid, PUNTOS_PROMO_VIEW, "promo_view", "Vista de promoción");
 
   return { puntos: PUNTOS_PROMO_VIEW, nuevoSaldo: result.nuevoSaldo };
@@ -25,7 +25,7 @@ async function registrarClick(uid, restauranteId) {
   const promo = await getPromoActiva(restauranteId);
   if (!promo) return { sinPromo: true };
 
-  await registrarInteraccion(promo.id, "click");
+  if (!(await registrarInteraccion(promo.id, "click"))) return { sinPromo: true };
   const result = await addPuntos(uid, PUNTOS_PROMO_CLICK, "promo_click", "Clic en promoción");
 
   return { puntos: PUNTOS_PROMO_CLICK, nuevoSaldo: result.nuevoSaldo };
