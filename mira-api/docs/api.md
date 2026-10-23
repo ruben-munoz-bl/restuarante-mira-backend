@@ -3872,7 +3872,7 @@ Cancelar una reserva con presentadaEn devuelve 409 CONFLICT, también para admin
 `GET /v1/restaurants/mas-reservados?dias=7&limit=8` es público. `dias` entero 1–30 (def.7), `limit` 1–20 (def.8); inválidos → 400 VALIDATION_ERROR. Devuelve `{ data: [{ id, reservas }] }`, recuento descendente y desempate por ID. Cuenta una reserva por documento con fecha entre hoy−(dias−1) y hoy, ambos incluidos, día Europe/Madrid; excluye únicamente estado `cancelada`. No incluye reservas futuras ni datos del cliente.
 La consulta Firestore aplica ambos límites de fecha y proyecta solo los aliases del restaurante y estado; no carga todo el histórico ni perfiles. Usa índice simple de fecha (sin índice compuesto nuevo). Caché en memoria 30 s por rango; cambia de clave al cambiar de día en Madrid. Hasta 30 s para reflejar reservas/cancelaciones nuevas. Sin despliegues.
 ## M14 · Siembra local de cartas simuladas
-`node scripts/sembrarCartas.js --project demo-mira-m14 --dry-run` valida y cuenta sin escribir; sin `--dry-run`, crea únicamente cartas ausentes. Requiere `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` y un proyecto explícito `demo-...`; esta entrega rechaza producción y hosts remotos antes de inicializar Firebase, incluso en dry-run. No usa credenciales reales.
+`node scripts/sembrarCartas.js --project demo-mira-m14 --dry-run` valida y cuenta sin escribir; sin `--dry-run`, crea únicamente cartas ausentes. El modo local requiere `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080` y un proyecto explícito `demo-...`. No usa credenciales reales.
 ```
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/sembrarCartas.js --project demo-mira-m14 --dry-run
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/sembrarCartas.js --project demo-mira-m14
@@ -3881,3 +3881,18 @@ FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/sembrarCartas.js --project d
 - Copia autocontenida de `cartaDelLocal`/`cartaLibro` del frontend (`src/models/restaurantModel.js`, revisión de archivo `cf493de`, SHA-256 en scripts/lib/cartaSimulada.js). Mismas categorías, nombres, descripciones, precios y alérgenos; IDs deterministas, `disponible:true`, `foto:null`. No depende del frontend al ejecutar y pasa el schema de M02.
 - Fixtures de 72 combinaciones generadas desde el modelo original, no desde el script del backend. Las pruebas contrastan categorías/platos/precios y alérgenos, y verifican no sobrescribir cartas, paginación y carreras con el editor.
 - `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 npm test`: 452/452, sin omisiones (incluye reglas M04 y CLI real dry-run → siembra → repetición → GET /v1/cartas/:id). Java21, Firestore1.19.8, proyecto demo-mira-m14. Sin ejecución en producción, unión ni despliegue.
+
+### M14 · Preparación del plan de producción (2026-10-23)
+Preparado para revisión; **no ejecutado contra producción**. Izan debe dar el OK antes de ejecutarlo, también para la lectura del dry-run.
+
+Comando previsto desde `mira-api/`, únicamente tras ese OK y con credenciales de lectura configuradas fuera del repositorio:
+```sh
+node scripts/sembrarCartas.js --produccion --dry-run --project restaurante-mira-18e0c
+```
+Exige los dos flags, el proyecto MIRA explícito y ausencia de `FIRESTORE_EMULATOR_HOST`.
+Rechaza cualquier modo de escritura en producción antes de inicializar Firebase.
+Usa las credenciales de aplicación por defecto de Firebase Admin; no carga `.env` ni incluye credenciales en código o logs.
+
+Emite JSON por línea: una fila `{ accion: "crearia", restauranteId, nombre, categorias, platos }` por carta ausente y, al final, el resumen con `produccion:true`, `dryRun:true`, `existentes`, `planificadas` y `creadas:0`.
+Omite documentos técnicos y todas las cartas existentes, incluso vacías; valida cada carta planificada con M02. Solo lee `restaurants` y `cartas`: no abre transacciones ni realiza escrituras. El plan refleja el estado durante la lectura y no reserva las cartas ante cambios posteriores del editor.
+Las pruebas de este modo usan exclusivamente Firebase simulado, con una trampa para transacciones y comparación del estado completo antes/después. La escritura continúa disponible únicamente para el emulador demo local; este cambio no habilita una siembra real en producción.

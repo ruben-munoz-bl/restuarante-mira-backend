@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { seedBase, seed, store, mockDb } = require("./helpers/mockFirebase");
-const { generarCarta, sembrarCartas, opciones } = require("../scripts/sembrarCartas");
+const { generarCarta, sembrarCartas, opciones, main } = require("../scripts/sembrarCartas");
 const { cartaSchema } = require("../src/modules/cartas/logica");
 const fixture = require("./fixtures/cartasFrontend.json");
 test.beforeEach(() => seedBase());
@@ -51,7 +51,7 @@ test("una carta creada por el editor durante el recorrido se conserva dentro de 
   assert.equal(res.existentes, 1); assert.deepEqual(store.get("cartas").get("r1"), carta);
 });
 
-test("CLI solo admite emulador local + proyecto demo explícito; producción rechazada incluso en dry-run", () => {
+test("CLI sin --produccion solo admite emulador local + proyecto demo explícito", () => {
   assert.deepEqual(opciones(["--dry-run", "--project", "demo-mira-m14"], { FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080" }), { dryRun: true, project: "demo-mira-m14" });
   for (const [args, env] of [
     [["--project", "restaurante-mira-18e0c"], { FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080" }],
@@ -60,4 +60,45 @@ test("CLI solo admite emulador local + proyecto demo explícito; producción rec
     [[], { FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080" }],
     [["--force", "--project", "demo-mira-m14"], { FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080" }],
   ]) assert.throws(() => opciones(args, env));
+});
+
+test("producción exige dry-run, proyecto MIRA explícito y ausencia de emulador", () => {
+  const args = ["--produccion", "--dry-run", "--project", "restaurante-mira-18e0c"];
+  assert.deepEqual(opciones(args, {}), { produccion: true, dryRun: true, project: "restaurante-mira-18e0c" });
+  for (const [argv, entorno] of [
+    [["--produccion", "--project", "restaurante-mira-18e0c"], {}],
+    [["--produccion", "--dry-run"], {}],
+    [["--produccion", "--dry-run", "--project", "otro-proyecto"], {}],
+    [["--produccion", "--dry-run", "--project", "demo-mira-m14"], {}],
+    [args, { FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080" }],
+    [[...args, "--force"], {}],
+  ]) assert.throws(() => opciones(argv, entorno));
+});
+
+test("plan de producción simulado lista solo cartas ausentes; cero transacciones y escrituras", async () => {
+  const existente = { categorias: [], actualizada: "editor" };
+  seed("cartas", "r1", existente);
+  seed("restaurants", "_catalogo", { _tipo: "catalogo" });
+  const antes = JSON.stringify([...store].map(([k, v]) => [k, [...v]]));
+  const lineas = []; let cerrada = false;
+  test.mock.method(mockDb, "runTransaction", () => { throw new Error("No puede escribir"); });
+  await main(["--produccion", "--dry-run", "--project", "restaurante-mira-18e0c"], {
+    entorno: {}, escribir: texto => lineas.push(JSON.parse(texto)),
+    admin: { initializeApp: opts => {
+      assert.equal(opts.projectId, "restaurante-mira-18e0c");
+      return { firestore: () => mockDb, delete: async () => { cerrada = true; } };
+    } },
+  });
+  assert.equal(cerrada, true);
+  assert.deepEqual(lineas.filter(l => l.accion === "crearia").map(l => l.restauranteId), ["r2", "r3"]);
+  assert.ok(lineas.filter(l => l.accion === "crearia").every(l => l.categorias > 0 && l.platos > 0));
+  assert.deepEqual(lineas.at(-1), { project: "restaurante-mira-18e0c", dryRun: true, produccion: true,
+    leidos: 4, tecnicos: 1, existentes: 1, planificadas: 2, creadas: 0 });
+  assert.equal(JSON.stringify([...store].map(([k, v]) => [k, [...v]])), antes);
+});
+
+test("no inicializa Firebase si falta dry-run y protege también la función de siembra", async () => {
+  const admin = { initializeApp: () => { assert.fail("No debe inicializar Firebase"); } };
+  await assert.rejects(main(["--produccion", "--project", "restaurante-mira-18e0c"], { entorno: {}, admin }), /dry-run/);
+  await assert.rejects(sembrarCartas(mockDb, { produccion: true }), /dry-run/);
 });

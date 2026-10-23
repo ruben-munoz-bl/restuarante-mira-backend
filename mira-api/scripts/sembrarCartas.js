@@ -15,7 +15,8 @@ function generarCarta(restaurante, ahora = new Date()) {
   return { restauranteId: restaurante.id, ...validada, actualizada: ahora.toISOString() };
 }
 
-async function sembrarCartas(db, { dryRun = false, lote = 100 } = {}) {
+async function sembrarCartas(db, { dryRun = false, produccion = false, lote = 100, alPlanificar = () => {} } = {}) {
+  if (produccion && !dryRun) throw new Error("Producción solo permite --produccion --dry-run");
   if (!Number.isInteger(lote) || lote < 1 || lote > 500) throw new Error("Lote inválido");
   const resumen = { leidos: 0, tecnicos: 0, existentes: 0, planificadas: 0, creadas: 0 };
   let ultimo;
@@ -30,7 +31,9 @@ async function sembrarCartas(db, { dryRun = false, lote = 100 } = {}) {
       const cartaRef = db.collection("cartas").doc(doc.id);
       if (dryRun) {
         if ((await cartaRef.get()).exists) { resumen.existentes++; continue; }
-        generarCarta({ ...doc.data(), id: doc.id });
+        const carta = generarCarta({ ...doc.data(), id: doc.id });
+        await alPlanificar({ restauranteId: doc.id, nombre: doc.data().nombre || '',
+          categorias: carta.categorias.length, platos: carta.categorias.reduce((n, c) => n + c.platos.length, 0) });
         resumen.planificadas++;
       } else {
         // El editor puede crear una carta durante el recorrido: comprobar de
@@ -54,24 +57,34 @@ async function sembrarCartas(db, { dryRun = false, lote = 100 } = {}) {
 }
 
 function opciones(args, entorno = process.env) {
-  let project, dryRun = false;
+  let project, dryRun = false, produccion = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--dry-run") dryRun = true;
+    else if (args[i] === "--produccion") produccion = true;
     else if (args[i] === "--project" && args[i + 1]) project = args[++i];
     else throw new Error(`Opción no admitida: ${args[i]}`);
   }
-  // Esta entrega solo permite el emulador local y proyectos demo. Sin vía
-  // accidental a producción, aunque existan credenciales en el entorno.
+  if (produccion) {
+    if (!dryRun) throw new Error("Producción solo permite --produccion --dry-run");
+    if (entorno.FIRESTORE_EMULATOR_HOST) throw new Error("No combines --produccion con FIRESTORE_EMULATOR_HOST");
+    if (project !== "restaurante-mira-18e0c") throw new Error("Producción requiere --project restaurante-mira-18e0c explícito");
+    return { project, dryRun, produccion };
+  }
+  // La escritura sigue limitada al emulador local y proyectos demo.
   if (!/^(?:127\.0\.0\.1|localhost):\d+$/.test(entorno.FIRESTORE_EMULATOR_HOST || "")) throw new Error("Se requiere FIRESTORE_EMULATOR_HOST en localhost");
   if (!/^demo-[a-z0-9-]+$/.test(project || "")) throw new Error("Indica --project demo-... para el emulador");
   return { project, dryRun };
 }
-async function main(args) {
-  const opts = opciones(args);
-  const admin = require("firebase-admin");
-  const app = admin.initializeApp({ projectId: opts.project }, "sembrar-cartas-local");
-  try { console.log(JSON.stringify({ project: opts.project, dryRun: opts.dryRun, ...await sembrarCartas(app.firestore(), opts) })); }
+async function main(args, { entorno = process.env, admin, escribir = console.log } = {}) {
+  const opts = opciones(args, entorno);
+  const firebase = admin || require("firebase-admin");
+  const app = firebase.initializeApp({ projectId: opts.project }, opts.produccion ? "planificar-cartas-produccion" : "sembrar-cartas-local");
+  try {
+    const resumen = await sembrarCartas(app.firestore(), { ...opts,
+      alPlanificar: opts.produccion ? carta => escribir(JSON.stringify({ accion: "crearia", ...carta })) : undefined });
+    escribir(JSON.stringify({ project: opts.project, dryRun: opts.dryRun, ...(opts.produccion ? { produccion: true } : {}), ...resumen }));
+  }
   finally { await app.delete(); }
 }
 if (require.main === module) main(process.argv.slice(2)).catch(err => { console.error(err.message); process.exitCode = 1; });
-module.exports = { generarCarta, sembrarCartas, opciones };
+module.exports = { generarCarta, sembrarCartas, opciones, main };
