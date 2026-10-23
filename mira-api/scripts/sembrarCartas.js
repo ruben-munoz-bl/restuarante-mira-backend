@@ -15,8 +15,8 @@ function generarCarta(restaurante, ahora = new Date()) {
   return { restauranteId: restaurante.id, ...validada, actualizada: ahora.toISOString() };
 }
 
-async function sembrarCartas(db, { dryRun = false, produccion = false, lote = 100, alPlanificar = () => {} } = {}) {
-  if (produccion && !dryRun) throw new Error("Producción solo permite --produccion --dry-run");
+async function sembrarCartas(db, { produccion = false, confirmar = false, dryRun = produccion && !confirmar, lote = 100, alPlanificar = () => {} } = {}) {
+  if (produccion && !dryRun && !confirmar) throw new Error("Escribir en producción requiere --confirmar");
   if (!Number.isInteger(lote) || lote < 1 || lote > 500) throw new Error("Lote inválido");
   const resumen = { leidos: 0, tecnicos: 0, existentes: 0, planificadas: 0, creadas: 0 };
   let ultimo;
@@ -33,7 +33,7 @@ async function sembrarCartas(db, { dryRun = false, produccion = false, lote = 10
         if ((await cartaRef.get()).exists) { resumen.existentes++; continue; }
         const carta = generarCarta({ ...doc.data(), id: doc.id });
         await alPlanificar({ restauranteId: doc.id, nombre: doc.data().nombre || '',
-          categorias: carta.categorias.length, platos: carta.categorias.reduce((n, c) => n + c.platos.length, 0) });
+          carta, categorias: carta.categorias.length, platos: carta.categorias.reduce((n, c) => n + c.platos.length, 0) });
         resumen.planificadas++;
       } else {
         // El editor puede crear una carta durante el recorrido: comprobar de
@@ -57,18 +57,20 @@ async function sembrarCartas(db, { dryRun = false, produccion = false, lote = 10
 }
 
 function opciones(args, entorno = process.env) {
-  let project, dryRun = false, produccion = false;
+  let project, dryRun = false, produccion = false, confirmar = false;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === "--dry-run") dryRun = true;
     else if (args[i] === "--produccion") produccion = true;
+    else if (args[i] === "--confirmar") confirmar = true;
     else if (args[i] === "--project" && args[i + 1]) project = args[++i];
     else throw new Error(`Opción no admitida: ${args[i]}`);
   }
+  if (confirmar && (dryRun || !produccion)) throw new Error("--confirmar requiere --produccion y no admite --dry-run");
   if (produccion) {
-    if (!dryRun) throw new Error("Producción solo permite --produccion --dry-run");
+    dryRun = !confirmar;
     if (entorno.FIRESTORE_EMULATOR_HOST) throw new Error("No combines --produccion con FIRESTORE_EMULATOR_HOST");
     if (project !== "restaurante-mira-18e0c") throw new Error("Producción requiere --project restaurante-mira-18e0c explícito");
-    return { project, dryRun, produccion };
+    return { project, dryRun, produccion, confirmar };
   }
   // La escritura sigue limitada al emulador local y proyectos demo.
   if (!/^(?:127\.0\.0\.1|localhost):\d+$/.test(entorno.FIRESTORE_EMULATOR_HOST || "")) throw new Error("Se requiere FIRESTORE_EMULATOR_HOST en localhost");

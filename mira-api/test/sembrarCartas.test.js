@@ -64,9 +64,9 @@ test("CLI sin --produccion solo admite emulador local + proyecto demo explícito
 
 test("producción exige dry-run, proyecto MIRA explícito y ausencia de emulador", () => {
   const args = ["--produccion", "--dry-run", "--project", "restaurante-mira-18e0c"];
-  assert.deepEqual(opciones(args, {}), { produccion: true, dryRun: true, project: "restaurante-mira-18e0c" });
+  assert.deepEqual(opciones(args, {}), { produccion: true, dryRun: true, confirmar: false, project: "restaurante-mira-18e0c" });
   for (const [argv, entorno] of [
-    [["--produccion", "--project", "restaurante-mira-18e0c"], {}],
+    [["--produccion", "--dry-run", "--confirmar", "--project", "restaurante-mira-18e0c"], {}],
     [["--produccion", "--dry-run"], {}],
     [["--produccion", "--dry-run", "--project", "otro-proyecto"], {}],
     [["--produccion", "--dry-run", "--project", "demo-mira-m14"], {}],
@@ -97,8 +97,13 @@ test("plan de producción simulado lista solo cartas ausentes; cero transaccione
   assert.equal(JSON.stringify([...store].map(([k, v]) => [k, [...v]])), antes);
 });
 
-test("no inicializa Firebase si falta dry-run y protege también la función de siembra", async () => {
-  const admin = { initializeApp: () => { assert.fail("No debe inicializar Firebase"); } };
-  await assert.rejects(main(["--produccion", "--project", "restaurante-mira-18e0c"], { entorno: {}, admin }), /dry-run/);
-  await assert.rejects(sembrarCartas(mockDb, { produccion: true }), /dry-run/);
+test("producción es dry-run por defecto; escribir exige confirmar sin flags contradictorios", async () => {
+  const args = ["--produccion", "--project", "restaurante-mira-18e0c"];
+  assert.equal(opciones(args, {}).dryRun, true);
+  assert.equal(opciones([...args, "--confirmar"], {}).dryRun, false);
+  assert.throws(() => opciones([...args, "--confirmar", "--dry-run"], {}));
+  await assert.rejects(sembrarCartas(mockDb, { produccion: true, dryRun: false }), /confirmar/);
+  assert.equal((await sembrarCartas(mockDb, { produccion: true })).creadas, 0);
+  assert.equal((await sembrarCartas(mockDb, { produccion: true, confirmar: true })).creadas, 3);
+  assert.equal((await sembrarCartas(mockDb, { produccion: true, confirmar: true })).creadas, 0);
 });

@@ -3896,3 +3896,7 @@ Usa las credenciales de aplicación por defecto de Firebase Admin; no carga `.en
 Emite JSON por línea: una fila `{ accion: "crearia", restauranteId, nombre, categorias, platos }` por carta ausente y, al final, el resumen con `produccion:true`, `dryRun:true`, `existentes`, `planificadas` y `creadas:0`.
 Omite documentos técnicos y todas las cartas existentes, incluso vacías; valida cada carta planificada con M02. Solo lee `restaurants` y `cartas`: no abre transacciones ni realiza escrituras. El plan refleja el estado durante la lectura y no reserva las cartas ante cambios posteriores del editor.
 Las pruebas de este modo usan exclusivamente Firebase simulado, con una trampa para transacciones y comparación del estado completo antes/después. La escritura continúa disponible únicamente para el emulador demo local; este cambio no habilita una siembra real en producción.
+
+### Cierre M14 (2026-10-23, sustituye la preparación anterior)
+`--produccion --project restaurante-mira-18e0c` hace dry-run por defecto. `--dry-run` es explícito opcional; escribir requiere `--confirmar`. Combinar ambos flags se rechaza antes de inicializar Firebase. Sin emulador y con credenciales ADC del proyecto MIRA. Cada fila del plan incluye también `carta` completa, con secciones e IDs validados por M02. Las cartas existentes se omiten. La escritura confirmada comprueba la ausencia dentro de una transacción: repetir no duplica ni sobrescribe.
+La ejecución de `--confirmar` corresponde a Izan tras revisión de Claude; Codex solo ejecuta el dry-run autorizado.
