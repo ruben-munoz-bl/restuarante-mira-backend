@@ -136,6 +136,8 @@ myRestaurants: async (ctx, args) => {
     }
     return promotionService.crearPromocion({
       uid,
+      // El rol sale de la sesión, nunca de los argumentos que propone la IA.
+      user: ctx.user,
       restauranteId,
       fechaInicio,
       fechaFin,
