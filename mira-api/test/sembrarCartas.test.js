@@ -52,12 +52,22 @@ test("una carta creada por el editor durante el recorrido se conserva dentro de 
 });
 
 test("CLI solo admite emulador local + proyecto demo explícito; producción rechazada incluso en dry-run", () => {
-  assert.deepEqual(opciones(["--dry-run", "--project", "demo-mira-m14"], { FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080" }), { dryRun: true, project: "demo-mira-m14" });
+  assert.deepEqual(opciones(["--dry-run", "--project", "demo-mira-m14"], { FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080" }), { dryRun: true, project: "demo-mira-m14", produccion: false });
   for (const [args, env] of [
     [["--project", "restaurante-mira-18e0c"], { FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080" }],
     [["--dry-run", "--project", "demo-mira-m14"], {}],
     [["--project", "demo-mira-m14"], { FIRESTORE_EMULATOR_HOST: "remoto.example:8080" }],
     [[], { FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080" }],
     [["--force", "--project", "demo-mira-m14"], { FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080" }],
+  ]) assert.throws(() => opciones(args, env));
+});
+
+test("--produccion solo con el proyecto real, credencial y sin emulador", () => {
+  const cred = { GOOGLE_APPLICATION_CREDENTIALS: "c.json" };
+  assert.deepEqual(opciones(["--produccion", "--dry-run", "--project", "restaurante-mira-18e0c"], cred), { project: "restaurante-mira-18e0c", dryRun: true, produccion: true });
+  for (const [args, env] of [
+    [["--produccion", "--project", "otro-proyecto"], cred],
+    [["--produccion", "--project", "restaurante-mira-18e0c"], {}],
+    [["--produccion", "--project", "restaurante-mira-18e0c"], { ...cred, FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080" }],
   ]) assert.throws(() => opciones(args, env));
 });
